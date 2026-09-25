@@ -39,3 +39,18 @@
 * **Deliverable:** `scripts/script_01_qmof_filter.py`, `data/metadata_qmof_filtered.csv`, `data/cohort_benchmark_mofs.csv`, 18 pristine `.cif` files.
 * **Status:** PASS ([VALIDATION PASSED] logged).
 
+### [2026-09-25 19:25] Step 4: Open Metal Site Detection & Adsorbate Placement
+* **Action:** Executed `scripts/script_02_site_intermediate_builder.py`.
+* **Methodology:**
+  - Evaluated the first coordination sphere around each transition metal node using a radial cutoff $R = 2.5\text{ \AA}$.
+  - Computed the outward-pointing open coordination vector ($\hat{u}_{\text{open}}$) from inverted normalized ligand vectors.
+  - Placed 7 reaction intermediates along $\hat{u}_{\text{open}}$:
+    * **HER:** $*H$ ($d_{\text{M-H}} = 1.55\text{ \AA}$)
+    * **OER:** $*OH$ ($1.85\text{ \AA}$), $*O$ ($1.68\text{ \AA}$), $*OOH$ ($1.85\text{ \AA}$ with $\angle\text{MOO} = 110^\circ$)
+    * **$\text{CO}_2\text{RR}$:** $*COOH$ ($1.95\text{ \AA}$, C-bound), $*CO$ ($1.85\text{ \AA}$, C-bound), $*OCHO$ ($1.95\text{ \AA}$, O-bound)
+  - Handled space-group symmetry breaking via ASE P1-preserving serialization.
+* **Validation:** Verified all 126 structures for physical binding distance ($1.2\text{ \AA} \le d \le 2.6\text{ \AA}$) with zero steric clashes.
+* **Deliverable:** `scripts/script_02_site_intermediate_builder.py`, `data/active_sites_summary.csv`, 126 `.cif` structures across `structures/intermediates_{her,oer,co2rr}/`.
+* **Status:** PASS ([VALIDATION PASSED] logged).
+
+

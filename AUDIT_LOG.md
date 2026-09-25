@@ -65,5 +65,19 @@
 * **Deliverable:** `scripts/script_03_chgnet_screening.py`, `data/chgnet_screening_results.csv`, 144 pre-relaxed CIFs in `structures/chgnet_prerelaxed/`.
 * **Status:** PASS ([VALIDATION PASSED] logged).
 
+### [2026-09-25 20:05] Step 6: Tier-2 MACE-MP-0 Refinement & Adsorption Energetics
+* **Action:** Executed `scripts/script_04_mace_refinement.py`.
+* **Methodology:**
+  - Evaluated isolated reference gas molecules ($H_2, H_2O, CO_2, CO$) in large non-periodic cells using MACE (`float64`, CUDA).
+  - Relaxed 18 pristine frameworks and 126 intermediate complexes with MACE-MP-0.
+  - Computed electronic adsorption energies ($\Delta E$) for all 7 reaction intermediates (HER, OER, $\text{CO}_2\text{RR}$).
+  - Quantified epistemic model uncertainty ($\sigma_{\text{MLIP}} = \lvert E_{\text{MACE}} - E_{\text{CHGNet}} \rvert / N_{\text{atoms}}$).
+* **Validation:**
+  - Correctly identified sterically accessible vs. congested pore sites using the epistemic variance criterion.
+  - Adsorption energies for open metal sites converged within physical ranges ($\Delta E_{*H} \in [-0.5, +1.2]\text{ eV}$, $\Delta E_{*CO} \in [-0.3, +1.1]\text{ eV}$).
+* **Deliverable:** `scripts/script_04_mace_refinement.py`, `data/mace_gas_references.csv`, `data/adsorption_energies_mace.csv`, 144 relaxed CIFs in `structures/mace_relaxed/`.
+* **Status:** PASS ([VALIDATION PASSED] logged).
+
+
 
 

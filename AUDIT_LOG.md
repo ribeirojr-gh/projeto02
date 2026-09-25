@@ -53,4 +53,17 @@
 * **Deliverable:** `scripts/script_02_site_intermediate_builder.py`, `data/active_sites_summary.csv`, 126 `.cif` structures across `structures/intermediates_{her,oer,co2rr}/`.
 * **Status:** PASS ([VALIDATION PASSED] logged).
 
+### [2026-09-25 19:40] Step 5: Tier-1 CHGNet Screening & Pre-Relaxation
+* **Action:** Executed `scripts/script_03_chgnet_screening.py`.
+* **Methodology:**
+  - Deployed CHGNet on local NVIDIA GeForce RTX 4070 Laptop GPU via PyTorch CUDA.
+  - Performed gradient-based pre-relaxation (ASE BFGS, $f_{\text{max}} < 0.10\text{ eV/\AA}$, capped at 40 steps).
+  - Evaluated 144 structures: 18 pristine MOFs + 18 $*H$ + 54 OER ($*OH, *O, *OOH$) + 54 $\text{CO}_2\text{RR}$ ($*COOH, *CO, *OCHO$).
+* **Validation:**
+  - 100% of tasks completed cleanly with monotonic energy descent ($\Delta E \le 0$).
+  - Zero structure explosions or unphysical cell distortions detected.
+* **Deliverable:** `scripts/script_03_chgnet_screening.py`, `data/chgnet_screening_results.csv`, 144 pre-relaxed CIFs in `structures/chgnet_prerelaxed/`.
+* **Status:** PASS ([VALIDATION PASSED] logged).
+
+
 

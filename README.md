@@ -79,6 +79,3 @@ python scripts/script_07_volcano_selectivity_plots.py
 5. **ASE:** Larsen et al., *J. Phys.: Condens. Matter* **29** (2017) 273002.
 6. **Pymatgen:** Ong et al., *Computational Materials Science* **68** (2013) 314–319.
 7. **Nørskov CHE Model:** Nørskov et al., *J. Phys. Chem. B* **108** (2004) 17886–17892.
-
----
-*Maintained by Prof. Luiz Antonio Ribeiro Junior — LCCMat / UnB & NTNU (2026).*

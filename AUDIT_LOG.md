@@ -118,6 +118,20 @@
 * **Deliverable:** `scripts/script_08_gpaw_dft_validation.py`, `data/gpaw_dft_benchmark.csv`.
 * **Status:** PASS ([VALIDATION PASSED] logged).
 
+### [2026-09-26 13:48] Step 11: Reaction Coordinate Free Energy Diagrams with Atomistic Insets
+* **Action:** Executed `scripts/script_09_free_energy_diagrams.py`.
+* **Methodology:**
+  - Evaluated multi-potential free energy profiles ($U = 0\text{ V}$, $U_{\text{eq}}$, $U_L$) for OER, HER, and $\text{CO}_2\text{RR}$.
+  - Extracted local coordination sphere clusters ($R \le 3.6\text{ \AA}$) from relaxed CIFs and rendered 2D ball-and-stick atomistic insets via ASE `plot_atoms`.
+  - Embedded insets directly above energy level steps using native Matplotlib axes.
+* **Deliverable:**
+  - `figures/fig4_oer_free_energy_diagram.png` & `.pdf` (Co-MOF-74 `qmof-73ded45` at $U=0.00, 1.23, 2.04\text{ V}$).
+  - `figures/fig5_her_free_energy_diagram.png` & `.pdf` (Cu-MOF-74 `qmof-b46c098` at $U=0.00, -0.12\text{ V}$).
+  - `figures/fig6_co2rr_free_energy_diagram.png` & `.pdf` (Mn-MOF `qmof-07cc468` at $U=0.00, U_L$).
+  - Updated `README.md` on GitHub with high-resolution previews and mechanistic breakdowns.
+* **Status:** PASS ([VALIDATION PASSED] logged).
+
+
 
 
 

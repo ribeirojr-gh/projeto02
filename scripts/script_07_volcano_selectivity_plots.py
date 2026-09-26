@@ -40,16 +40,21 @@ for d in [FIG_DIR, SI_TABLES_DIR, LOG_DIR]:
 CHE_SUMMARY_CSV = DATA_DIR / "che_electrocatalysis_summary.csv"
 LOG_FILE = LOG_DIR / "results.log"
 
-# Setup Publication Matplotlib Style
+# Setup Publication Matplotlib Style (strictly following 20128410 template)
 mpl.rcParams.update({
+    "text.usetex": True,
     "font.family": "serif",
-    "font.size": 11,
-    "axes.labelsize": 12,
-    "axes.titlesize": 13,
-    "xtick.labelsize": 10,
-    "ytick.labelsize": 10,
-    "legend.fontsize": 9.5,
-    "figure.titlesize": 14,
+    "font.serif": ["Times"],
+    "text.latex.preamble": r"\usepackage{mathptmx}\usepackage{amsmath}\usepackage{amssymb}",
+    "font.size": 10,
+    "axes.linewidth": 0.6,
+    "xtick.major.width": 0.6,
+    "ytick.major.width": 0.6,
+    "xtick.direction": "in",
+    "ytick.direction": "in",
+    "xtick.top": True,
+    "ytick.right": True,
+    "legend.fontsize": 8.5,
     "lines.linewidth": 1.8,
     "lines.markersize": 7,
     "figure.dpi": 300,
@@ -102,18 +107,20 @@ def plot_oer_scaling_and_volcano(df: pd.DataFrame):
             color=METAL_COLORS.get(metal, "#333"), label=metal, edgecolors="k", s=65, zorder=5
         )
 
+    ax1.set_xlim([0.4, 2.6])
+    ax1.set_ylim([3.4, 6.2])
     ax1.set_xlabel(r"$\Delta G_{*\mathrm{OH}}$ (eV)")
     ax1.set_ylabel(r"$\Delta G_{*\mathrm{OOH}}$ (eV)")
     ax1.set_title(r"(a) OER Intermediate Scaling Relation")
-    ax1.grid(True, linestyle=":", alpha=0.6)
-    ax1.legend(loc="upper left", framealpha=0.9, fontsize=8.5)
+    ax1.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
+    ax1.legend(loc="upper left", frameon=False, ncol=2, fontsize=8.2)
 
     # Panel B: Volcano plot: η_OER vs (ΔG_O - ΔG_OH)
     x_desc = (valid["delta_G_O_eV"] - valid["delta_G_OH_eV"]).values
     y_eta = valid["eta_OER_V"].values
 
     # Theoretical volcano lines based on ideal scaling
-    x_volcano = np.linspace(0.5, 3.2, 100)
+    x_volcano = np.linspace(0.4, 3.3, 150)
     # Left branch (PDS: *O -> *OOH): η = 3.2 - (ΔG_O - ΔG_OH) - 1.23
     # Right branch (PDS: *OH -> *O): η = (ΔG_O - ΔG_OH) - 1.23
     eta_left = np.maximum(0.0, 3.20 - x_volcano - 1.23)
@@ -130,11 +137,13 @@ def plot_oer_scaling_and_volcano(df: pd.DataFrame):
             color=METAL_COLORS.get(metal, "#333"), label=metal, edgecolors="k", s=65, zorder=5
         )
 
+    ax2.set_xlim([0.4, 3.3])
+    ax2.set_ylim([0.0, 2.7])
     ax2.set_xlabel(r"OER Descriptor: $\Delta G_{*\mathrm{O}} - \Delta G_{*\mathrm{OH}}$ (eV)")
     ax2.set_ylabel(r"Theoretical Overpotential $\eta^{\mathrm{OER}}$ (V)")
     ax2.set_title(r"(b) OER Volcano Activity Curve")
-    ax2.grid(True, linestyle=":", alpha=0.6)
-    ax2.legend(loc="upper right", framealpha=0.9, fontsize=8.5)
+    ax2.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
+    ax2.legend(loc="upper center", bbox_to_anchor=(0.5, 0.98), frameon=False, ncol=3, fontsize=8.2)
 
     plt.tight_layout()
     png_path = FIG_DIR / "fig1_oer_scaling_and_volcano.png"
@@ -149,31 +158,31 @@ def plot_her_volcano(df: pd.DataFrame):
     """Figure 2: HER Volcano Plot."""
     valid = df[(df["steric_congested"] == False) & (df["eta_HER_V"].notna())].copy()
 
-    plt.figure(figsize=(6.5, 4.8))
+    fig, ax = plt.subplots(figsize=(6.2, 4.5))
     
     x_gh = valid["delta_G_H_eV"].values
-    # Exchange current proxy: -|ΔG_*H| / k_B T (in log10 units ~ -|ΔG_*H| / 0.0592)
-    # Or -η_HER
     
     # Theoretical volcano lines
-    x_axis = np.linspace(-1.5, 1.5, 150)
+    x_axis = np.linspace(-1.4, 1.4, 150)
     y_activity = -np.abs(x_axis) # -η_HER (V)
 
-    plt.plot(x_axis, y_activity, "k--", label=r"Sabatier Activity Limit ($-\eta^{\mathrm{HER}}$)")
-    plt.axvline(0.0, color="gray", linestyle=":", alpha=0.7)
+    ax.plot(x_axis, y_activity, "k--", label=r"Sabatier Activity Limit ($-\eta^{\mathrm{HER}}$)")
+    ax.axvline(0.0, color="gray", linestyle=":", alpha=0.5, linewidth=0.6)
 
     for metal in sorted(valid["metal"].unique()):
         sub = valid[valid["metal"] == metal]
-        plt.scatter(
+        ax.scatter(
             sub["delta_G_H_eV"], -sub["eta_HER_V"],
-            color=METAL_COLORS.get(metal, "#333"), label=metal, edgecolors="k", s=70, zorder=5
+            color=METAL_COLORS.get(metal, "#333"), label=metal, edgecolors="k", s=65, zorder=5
         )
 
-    plt.xlabel(r"HER Descriptor: $\Delta G_{*\mathrm{H}}$ (eV)")
-    plt.ylabel(r"Theoretical Activity Proxy: $-\eta^{\mathrm{HER}}$ (V)")
-    plt.title(r"HER Sabatier Volcano on MOF Open Metal Sites")
-    plt.grid(True, linestyle=":", alpha=0.6)
-    plt.legend(loc="lower center", framealpha=0.9, ncol=3, fontsize=9)
+    ax.set_xlim([-1.3, 1.3])
+    ax.set_ylim([-1.65, 0.45])
+    ax.set_xlabel(r"HER Descriptor: $\Delta G_{*\mathrm{H}}$ (eV)")
+    ax.set_ylabel(r"Theoretical Activity Proxy: $-\eta^{\mathrm{HER}}$ (V)")
+    ax.set_title(r"HER Sabatier Volcano on MOF Open Metal Sites")
+    ax.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 0.98), frameon=False, ncol=3, fontsize=8.2)
 
     plt.tight_layout()
     png_path = FIG_DIR / "fig2_her_volcano.png"
@@ -196,23 +205,23 @@ def plot_co2rr_selectivity_and_pathways(df: pd.DataFrame):
 
     bounds = [-0.5, 2.0]
     ax1.plot(bounds, bounds, "k--", label=r"Equi-affinity: $\Delta G_{*\mathrm{COOH}} = \Delta G_{*\mathrm{H}}$")
-    ax1.fill_between(bounds, bounds, [2.0, 2.0], color="#ffcccc", alpha=0.3, label=r"HER Dominant Regime ($\Delta G_{\mathrm{sel}} > 0$)")
-    ax1.fill_between(bounds, [-0.5, -0.5], bounds, color="#ccffcc", alpha=0.3, label=r"$\mathrm{CO}_2\mathrm{RR}$ Favored Regime ($\Delta G_{\mathrm{sel}} < 0$)")
+    ax1.fill_between(bounds, bounds, [2.6, 2.6], color="#ffcccc", alpha=0.3, label=r"HER Dominant ($\Delta G_{\mathrm{sel}} > 0$)")
+    ax1.fill_between(bounds, [-0.5, -0.5], bounds, color="#ccffcc", alpha=0.3, label=r"$\mathrm{CO}_2\mathrm{RR}$ Favored ($\Delta G_{\mathrm{sel}} < 0$)")
 
     for metal in sorted(valid["metal"].unique()):
         sub = valid[valid["metal"] == metal]
         ax1.scatter(
             sub["delta_G_H_eV"], sub["delta_G_COOH_eV"],
-            color=METAL_COLORS.get(metal, "#333"), label=metal, edgecolors="k", s=70, zorder=5
+            color=METAL_COLORS.get(metal, "#333"), label=metal, edgecolors="k", s=65, zorder=5
         )
 
     ax1.set_xlim(bounds)
-    ax1.set_ylim(bounds)
+    ax1.set_ylim([-0.5, 2.6])
     ax1.set_xlabel(r"$\Delta G_{*\mathrm{H}}$ (eV)")
     ax1.set_ylabel(r"$\Delta G_{*\mathrm{COOH}}$ (eV)")
     ax1.set_title(r"(a) $\mathrm{CO}_2\mathrm{RR}$ vs. Parasitic HER Selectivity Map")
-    ax1.grid(True, linestyle=":", alpha=0.6)
-    ax1.legend(loc="upper left", framealpha=0.9, fontsize=8.5)
+    ax1.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
+    ax1.legend(loc="upper left", frameon=False, ncol=2, fontsize=8.2)
 
     # Panel B: Free Energy Reaction Coordinate Diagram for top MOF systems
     # Reaction coordinates: CO2(g) -> *COOH -> *CO -> CO(g)
@@ -233,16 +242,18 @@ def plot_co2rr_selectivity_and_pathways(df: pd.DataFrame):
             
             metal = r["metal"]
             ax2.plot(
-                coords, g_profile, marker="o", linewidth=2.0,
+                coords, g_profile, marker="o", linewidth=1.8,
                 color=METAL_COLORS.get(metal, "#333"), label=f"{metal} ({q_id})"
             )
 
+    ax2.set_xlim([-0.3, 3.3])
+    ax2.set_ylim([-1.3, 2.4])
     ax2.set_xticks(coords)
     ax2.set_xticklabels(labels)
     ax2.set_ylabel(r"Gibbs Free Energy $\Delta G$ (eV) at $U = 0$ V")
     ax2.set_title(r"(b) $\mathrm{CO}_2\mathrm{RR}$ ($C_1 \rightarrow \mathrm{CO}$) Free Energy Profiles")
-    ax2.grid(True, linestyle=":", alpha=0.6)
-    ax2.legend(loc="upper left", framealpha=0.9, fontsize=8.5)
+    ax2.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
+    ax2.legend(loc="lower left", frameon=False, fontsize=8.2)
 
     plt.tight_layout()
     png_path = FIG_DIR / "fig3_co2rr_her_selectivity.png"

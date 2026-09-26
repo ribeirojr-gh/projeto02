@@ -43,11 +43,19 @@ SITES_CSV = DATA_DIR / "active_sites_summary.csv"
 LOG_FILE = LOG_DIR / "results.log"
 
 mpl.rcParams.update({
+    "text.usetex": True,
     "font.family": "serif",
-    "font.size": 11,
-    "axes.labelsize": 12,
-    "axes.titlesize": 13,
-    "figure.titlesize": 14,
+    "font.serif": ["Times"],
+    "text.latex.preamble": r"\usepackage{mathptmx}\usepackage{amsmath}\usepackage{amssymb}",
+    "font.size": 10,
+    "axes.linewidth": 0.6,
+    "xtick.major.width": 0.6,
+    "ytick.major.width": 0.6,
+    "xtick.direction": "in",
+    "ytick.direction": "in",
+    "xtick.top": True,
+    "ytick.right": True,
+    "legend.fontsize": 8.5,
     "lines.linewidth": 2.2,
     "figure.dpi": 300,
     "savefig.dpi": 300,
@@ -94,7 +102,7 @@ def draw_stepped_profile(ax, levels, color, label, linestyle="-", step_width=0.3
 
 
 def plot_oer_diagram(q_id: str = "qmof-73ded45"):
-    """Figure 4: OER Free Energy Diagram at 3 potentials with atomistic insets."""
+    """Figure 4: OER Free Energy Diagram at 3 potentials with decoupled atomistic insets."""
     df = pd.read_csv(CHE_SUMMARY_CSV).set_index("qmof_id")
     if q_id not in df.index:
         q_id = df.index[0]
@@ -113,8 +121,27 @@ def plot_oer_diagram(q_id: str = "qmof-73ded45"):
     # Levels at U = U_L
     g_ul = [0.0, dg_oh - u_l, dg_o - 2 * u_l, dg_ooh - 3 * u_l, 4.92 - 4 * u_l]
 
-    fig, ax = plt.subplots(figsize=(10.5, 6.2))
+    fig = plt.figure(figsize=(10.5, 6.8))
+    gs = fig.add_gridspec(2, 4, height_ratios=[1.0, 2.5], hspace=0.35, wspace=0.15)
 
+    # Inset Atomistic Visualizations in Dedicated Top Row
+    inset_configs = [
+        (0, PRISTINE_DIR / f"{q_id}.cif", r"$*$ (Pristine OMS)"),
+        (1, STRUCTURES_DIR / f"{q_id}_oer_OH.cif", r"$*\mathrm{OH}$"),
+        (2, STRUCTURES_DIR / f"{q_id}_oer_O.cif", r"$*\mathrm{O}$"),
+        (3, STRUCTURES_DIR / f"{q_id}_oer_OOH.cif", r"$*\mathrm{OOH}$"),
+    ]
+
+    for col_i, (_, path, tag) in enumerate(inset_configs):
+        ax_ins = fig.add_subplot(gs[0, col_i])
+        if path.exists():
+            cluster = extract_active_cluster(path, site_idx=0, radius=3.2)
+            plot_atoms(cluster, ax_ins, radii=0.55, rotation="15x,15y,0z")
+        ax_ins.axis("off")
+        ax_ins.set_title(tag, fontsize=9.5, weight="bold", color="#222", pad=3)
+
+    # Main Gibbs Free Energy Stepped Diagram in Bottom Row
+    ax = fig.add_subplot(gs[1, :])
     draw_stepped_profile(ax, g_u0, "#d62728", r"$U = 0.00$ V (Standard State)")
     draw_stepped_profile(ax, g_u123, "#1f77b4", r"$U = 1.23$ V (Equilibrium Potential)")
     draw_stepped_profile(ax, g_ul, "#2ca02c", rf"$U = {u_l:.2f}$ V (Onset / Limiting Potential, $\eta = {eta:.2f}$ V)")
@@ -127,36 +154,13 @@ def plot_oer_diagram(q_id: str = "qmof-73ded45"):
         r"$* + \mathrm{O}_2 + 4(\mathrm{H}^+ + e^-)$"
     ]
     ax.set_xticks(range(5))
-    ax.set_xticklabels(x_labels, rotation=12, ha="right")
+    ax.set_xticklabels(x_labels, rotation=10, ha="right")
     ax.set_ylabel(r"Gibbs Free Energy $\Delta G$ (eV)")
-    ax.set_title(rf"OER Free Energy Reaction Coordinate: {row['primary_metal'] if 'primary_metal' in row else row['metal']}-MOF ({q_id})", pad=20)
-    ax.grid(True, linestyle=":", alpha=0.5)
-    ax.legend(loc="upper right", framealpha=0.9, fontsize=9.5)
-
-    # Inset Atomistic Visualizations
-    inset_configs = [
-        (0, PRISTINE_DIR / f"{q_id}.cif", "*"),
-        (1, STRUCTURES_DIR / f"{q_id}_oer_OH.cif", "*OH"),
-        (2, STRUCTURES_DIR / f"{q_id}_oer_O.cif", "*O"),
-        (3, STRUCTURES_DIR / f"{q_id}_oer_OOH.cif", "*OOH"),
-    ]
-
-    # Map normalized coordinates for insets
-    y_min, y_max = ax.get_ylim()
-    inset_positions = [
-        [0.02, 0.65, 0.20, 0.25],
-        [0.22, 0.65, 0.20, 0.25],
-        [0.44, 0.65, 0.20, 0.25],
-        [0.66, 0.65, 0.20, 0.25]
-    ]
-
-    for (step_i, path, tag), pos in zip(inset_configs, inset_positions):
-        if path.exists():
-            ax_ins = ax.inset_axes(pos)
-            cluster = extract_active_cluster(path, site_idx=0, radius=3.2)
-            plot_atoms(cluster, ax_ins, radii=0.55, rotation="15x,15y,0z")
-            ax_ins.axis("off")
-            ax_ins.set_title(tag, fontsize=10, weight="bold", color="#333", pad=2)
+    m_name = row["primary_metal"] if "primary_metal" in row else row.get("metal", "Co")
+    ax.set_title(rf"OER Reaction Coordinate: {m_name}-MOF ({q_id})", pad=12)
+    ax.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
+    ax.set_ylim([-0.8, 5.8])
+    ax.legend(loc="upper left", frameon=False, fontsize=8.8)
 
     png_path = FIG_DIR / "fig4_oer_free_energy_diagram.png"
     pdf_path = FIG_DIR / "fig4_oer_free_energy_diagram.pdf"
@@ -167,7 +171,7 @@ def plot_oer_diagram(q_id: str = "qmof-73ded45"):
 
 
 def plot_her_diagram(q_id: str = "qmof-b46c098"):
-    """Figure 5: HER Free Energy Diagram at 2 potentials with atomistic insets."""
+    """Figure 5: HER Free Energy Diagram at 2 potentials with decoupled atomistic insets."""
     df = pd.read_csv(CHE_SUMMARY_CSV).set_index("qmof_id")
     if q_id not in df.index:
         q_id = df.index[0]
@@ -181,8 +185,25 @@ def plot_her_diagram(q_id: str = "qmof-b46c098"):
     # Levels at U = -eta V
     g_ueta = [0.0, dg_h - eta if dg_h > 0 else dg_h + eta, 0.0]
 
-    fig, ax = plt.subplots(figsize=(8.0, 5.5))
+    fig = plt.figure(figsize=(7.5, 5.8))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.0, 2.3], hspace=0.35, wspace=0.20)
 
+    # Inset Atomistic Visualizations in Dedicated Top Row
+    inset_configs = [
+        (0, PRISTINE_DIR / f"{q_id}.cif", r"$*$ (Pristine OMS)"),
+        (1, STRUCTURES_DIR / f"{q_id}_her_H.cif", r"$*\mathrm{H}$ (Hydride Adduct)"),
+    ]
+
+    for col_i, (_, path, tag) in enumerate(inset_configs):
+        ax_ins = fig.add_subplot(gs[0, col_i])
+        if path.exists():
+            cluster = extract_active_cluster(path, site_idx=0, radius=3.2)
+            plot_atoms(cluster, ax_ins, radii=0.55, rotation="15x,15y,0z")
+        ax_ins.axis("off")
+        ax_ins.set_title(tag, fontsize=9.5, weight="bold", color="#222", pad=3)
+
+    # Main Stepped Profile in Bottom Row
+    ax = fig.add_subplot(gs[1, :])
     draw_stepped_profile(ax, g_u0, "#d62728", r"$U = 0.00$ V (Standard State)")
     draw_stepped_profile(ax, g_ueta, "#2ca02c", rf"$U = -{eta:.2f}$ V (HER Overpotential, $\Delta G \leq 0$)")
 
@@ -192,25 +213,14 @@ def plot_her_diagram(q_id: str = "qmof-b46c098"):
         r"$* + \frac{1}{2}\mathrm{H}_2(\mathrm{g})$"
     ]
     ax.set_xticks(range(3))
-    ax.set_xticklabels(x_labels, rotation=10, ha="right")
+    ax.set_xticklabels(x_labels, rotation=8, ha="right")
     ax.set_ylabel(r"Gibbs Free Energy $\Delta G$ (eV)")
-    ax.set_title(rf"HER Free Energy Reaction Coordinate: {row['metal']}-MOF ({q_id})", pad=20)
-    ax.grid(True, linestyle=":", alpha=0.5)
-    ax.legend(loc="lower left", framealpha=0.9, fontsize=9.5)
-
-    # Insets: pristine and *H
-    inset_configs = [
-        (0, PRISTINE_DIR / f"{q_id}.cif", "Pristine OMS (*)", [0.10, 0.65, 0.26, 0.28]),
-        (1, STRUCTURES_DIR / f"{q_id}_her_H.cif", "Hydrogen Adduct (*H)", [0.55, 0.65, 0.26, 0.28]),
-    ]
-
-    for step_i, path, tag, pos in inset_configs:
-        if path.exists():
-            ax_ins = ax.inset_axes(pos)
-            cluster = extract_active_cluster(path, site_idx=0, radius=3.2)
-            plot_atoms(cluster, ax_ins, radii=0.55, rotation="15x,15y,0z")
-            ax_ins.axis("off")
-            ax_ins.set_title(tag, fontsize=10, weight="bold", color="#333", pad=2)
+    ax.set_title(rf"HER Reaction Coordinate: {row['metal']}-MOF ({q_id})", pad=12)
+    ax.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
+    y_min_val = min(min(g_u0), min(g_ueta)) - 0.4
+    y_max_val = max(max(g_u0), max(g_ueta)) + 0.6
+    ax.set_ylim([y_min_val, y_max_val])
+    ax.legend(loc="upper right", frameon=False, fontsize=8.8)
 
     png_path = FIG_DIR / "fig5_her_free_energy_diagram.png"
     pdf_path = FIG_DIR / "fig5_her_free_energy_diagram.pdf"
@@ -221,7 +231,7 @@ def plot_her_diagram(q_id: str = "qmof-b46c098"):
 
 
 def plot_co2rr_diagram(q_id: str = "qmof-07cc468"):
-    """Figure 6: CO2RR (CO path) Free Energy Diagram at 2 potentials with insets."""
+    """Figure 6: CO2RR (CO path) Free Energy Diagram at 2 potentials with decoupled insets."""
     df = pd.read_csv(CHE_SUMMARY_CSV).set_index("qmof_id")
     if q_id not in df.index:
         q_id = df.index[0]
@@ -237,8 +247,26 @@ def plot_co2rr_diagram(q_id: str = "qmof-07cc468"):
     # Levels at U = U_L
     g_ul = [0.0, dg_cooh + u_l, dg_co + 2 * u_l, -0.22 + 2 * u_l]
 
-    fig, ax = plt.subplots(figsize=(9.2, 5.8))
+    fig = plt.figure(figsize=(9.2, 6.2))
+    gs = fig.add_gridspec(2, 3, height_ratios=[1.0, 2.3], hspace=0.35, wspace=0.18)
 
+    # Inset Atomistic Visualizations in Dedicated Top Row
+    inset_configs = [
+        (0, PRISTINE_DIR / f"{q_id}.cif", r"$*$ (Pristine OMS)"),
+        (1, STRUCTURES_DIR / f"{q_id}_co2rr_COOH.cif", r"$*\mathrm{COOH}$ (Carboxyl)"),
+        (2, STRUCTURES_DIR / f"{q_id}_co2rr_CO.cif", r"$*\mathrm{CO}$ (Carbonyl)"),
+    ]
+
+    for col_i, (_, path, tag) in enumerate(inset_configs):
+        ax_ins = fig.add_subplot(gs[0, col_i])
+        if path.exists():
+            cluster = extract_active_cluster(path, site_idx=0, radius=3.2)
+            plot_atoms(cluster, ax_ins, radii=0.55, rotation="15x,15y,0z")
+        ax_ins.axis("off")
+        ax_ins.set_title(tag, fontsize=9.5, weight="bold", color="#222", pad=3)
+
+    # Main Stepped Profile in Bottom Row
+    ax = fig.add_subplot(gs[1, :])
     draw_stepped_profile(ax, g_u0, "#d62728", r"$U = 0.00$ V (Standard State)")
     draw_stepped_profile(ax, g_ul, "#2ca02c", rf"$U = {u_l:.2f}$ V (Onset Potential, $\eta = {eta:.2f}$ V)")
 
@@ -249,25 +277,12 @@ def plot_co2rr_diagram(q_id: str = "qmof-07cc468"):
         r"$\mathrm{CO}(\mathrm{g}) + \mathrm{H}_2\mathrm{O} + *$"
     ]
     ax.set_xticks(range(4))
-    ax.set_xticklabels(x_labels, rotation=10, ha="right")
+    ax.set_xticklabels(x_labels, rotation=8, ha="right")
     ax.set_ylabel(r"Gibbs Free Energy $\Delta G$ (eV)")
-    ax.set_title(rf"$\mathrm{{CO}}_2\mathrm{{RR}} \rightarrow \mathrm{{CO}}$ Free Energy Diagram: {row['metal']}-MOF ({q_id})", pad=20)
-    ax.grid(True, linestyle=":", alpha=0.5)
-    ax.legend(loc="upper right", framealpha=0.9, fontsize=9.5)
-
-    inset_configs = [
-        (0, PRISTINE_DIR / f"{q_id}.cif", "Pristine OMS (*)", [0.03, 0.65, 0.24, 0.27]),
-        (1, STRUCTURES_DIR / f"{q_id}_co2rr_COOH.cif", "Carboxyl (*COOH)", [0.35, 0.65, 0.24, 0.27]),
-        (2, STRUCTURES_DIR / f"{q_id}_co2rr_CO.cif", "Carbonyl (*CO)", [0.67, 0.65, 0.24, 0.27]),
-    ]
-
-    for step_i, path, tag, pos in inset_configs:
-        if path.exists():
-            ax_ins = ax.inset_axes(pos)
-            cluster = extract_active_cluster(path, site_idx=0, radius=3.2)
-            plot_atoms(cluster, ax_ins, radii=0.55, rotation="15x,15y,0z")
-            ax_ins.axis("off")
-            ax_ins.set_title(tag, fontsize=10, weight="bold", color="#333", pad=2)
+    ax.set_title(rf"$\mathrm{{CO}}_2\mathrm{{RR}} \rightarrow \mathrm{{CO}}$ Reaction Coordinate: {row['metal']}-MOF ({q_id})", pad=12)
+    ax.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
+    ax.set_ylim([-1.2, 2.5])
+    ax.legend(loc="upper right", frameon=False, fontsize=8.8)
 
     png_path = FIG_DIR / "fig6_co2rr_free_energy_diagram.png"
     pdf_path = FIG_DIR / "fig6_co2rr_free_energy_diagram.pdf"

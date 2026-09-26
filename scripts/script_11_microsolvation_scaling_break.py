@@ -59,10 +59,19 @@ DTYPE = "float64"
 DEVICE = "cuda"
 
 mpl.rcParams.update({
+    "text.usetex": True,
     "font.family": "serif",
-    "font.size": 10.5,
-    "axes.labelsize": 11.5,
-    "axes.titlesize": 12.5,
+    "font.serif": ["Times"],
+    "text.latex.preamble": r"\usepackage{mathptmx}\usepackage{amsmath}\usepackage{amssymb}",
+    "font.size": 10,
+    "axes.linewidth": 0.6,
+    "xtick.major.width": 0.6,
+    "ytick.major.width": 0.6,
+    "xtick.direction": "in",
+    "ytick.direction": "in",
+    "xtick.top": True,
+    "ytick.right": True,
+    "legend.fontsize": 8.5,
     "lines.linewidth": 1.8,
     "figure.dpi": 300,
     "savefig.dpi": 300,
@@ -211,72 +220,76 @@ def main():
 
     records = []
 
-    for q_id, metal, rxn, state, cif_name in study_cases:
-        cif_path = IN_DIR / cif_name
-        if not cif_path.exists():
-            logger.warning(f"File {cif_path} not found, skipping.")
-            continue
-        
-        base_atoms = ase.io.read(str(cif_path))
-        
-        # Determine pore direction vector (pointing away from metal site)
-        dists = base_atoms.get_distances(0, range(1, min(len(base_atoms), 7)), mic=True, vector=True)
-        pore_vector = -np.mean(dists, axis=0)
-        pore_vector = pore_vector / np.linalg.norm(pore_vector)
+    if CSV_OUTPUT.exists():
+        logger.info(f"Loading existing solvation thermodynamics from {CSV_OUTPUT}...")
+        df = pd.read_csv(CSV_OUTPUT)
+    else:
+        for q_id, metal, rxn, state, cif_name in study_cases:
+            cif_path = IN_DIR / cif_name
+            if not cif_path.exists():
+                logger.warning(f"File {cif_path} not found, skipping.")
+                continue
+            
+            base_atoms = ase.io.read(str(cif_path))
+            
+            # Determine pore direction vector (pointing away from metal site)
+            dists = base_atoms.get_distances(0, range(1, min(len(base_atoms), 7)), mic=True, vector=True)
+            pore_vector = -np.mean(dists, axis=0)
+            pore_vector = pore_vector / np.linalg.norm(pore_vector)
 
-        # Baseline dry energy (n = 0)
-        base_atoms.calc = calc
-        e_dry = float(base_atoms.get_potential_energy())
-        records.append({
-            "qmof_id": q_id,
-            "metal": metal,
-            "reaction": rxn,
-            "state": state,
-            "n_waters": 0,
-            "total_energy_eV": e_dry,
-            "solvation_energy_eV": 0.0,
-            "h_bond_stabilization_per_water_eV": 0.0,
-            "fmax_eV_A": 0.02
-        })
-
-        for n_w in [1, 2, 3]:
-            tag = f"{q_id}_{state.replace('*', '')}_solv{n_w}w"
-            logger.info(f"Relaxing {tag} ({metal}, {rxn}, {n_w} H2O)...")
-            
-            solv_atoms = add_solvation_waters(base_atoms, state, n_w, pore_vector)
-            solv_atoms.calc = calc
-            
-            # Local optimization of the solvent & adsorbate network
-            dyn = BFGS(solv_atoms, logfile=None)
-            dyn.run(fmax=FMAX_MACE, steps=MAX_STEPS)
-            
-            e_solv = float(solv_atoms.get_potential_energy())
-            fmax_val = float(np.max(np.linalg.norm(solv_atoms.get_forces(), axis=1)))
-            
-            # Differential solvation energy: E(MOF+ads+nH2O) - E(MOF+ads) - n*E(H2O)
-            delta_e_solv = e_solv - e_dry - n_w * e_h2o_ref
-            e_hb_per_w = delta_e_solv / n_w
-            
-            # Save structure
-            out_cif = OUT_DIR / f"{tag}.cif"
-            ase.io.write(str(out_cif), solv_atoms, format="cif")
-            
+            # Baseline dry energy (n = 0)
+            base_atoms.calc = calc
+            e_dry = float(base_atoms.get_potential_energy())
             records.append({
                 "qmof_id": q_id,
                 "metal": metal,
                 "reaction": rxn,
                 "state": state,
-                "n_waters": n_w,
-                "total_energy_eV": e_solv,
-                "solvation_energy_eV": delta_e_solv,
-                "h_bond_stabilization_per_water_eV": e_hb_per_w,
-                "fmax_eV_A": fmax_val
+                "n_waters": 0,
+                "total_energy_eV": e_dry,
+                "solvation_energy_eV": 0.0,
+                "h_bond_stabilization_per_water_eV": 0.0,
+                "fmax_eV_A": 0.02
             })
-            logger.info(f"  -> {tag}: ΔE_solv = {delta_e_solv:.3f} eV ({e_hb_per_w:.3f} eV/H2O) | fmax = {fmax_val:.3f} eV/Å")
 
-    df = pd.DataFrame(records)
-    df.to_csv(CSV_OUTPUT, index=False)
-    logger.info(f"Saved solvation thermodynamics to {CSV_OUTPUT}")
+            for n_w in [1, 2, 3]:
+                tag = f"{q_id}_{state.replace('*', '')}_solv{n_w}w"
+                logger.info(f"Relaxing {tag} ({metal}, {rxn}, {n_w} H2O)...")
+                
+                solv_atoms = add_solvation_waters(base_atoms, state, n_w, pore_vector)
+                solv_atoms.calc = calc
+                
+                # Local optimization of the solvent & adsorbate network
+                dyn = BFGS(solv_atoms, logfile=None)
+                dyn.run(fmax=FMAX_MACE, steps=MAX_STEPS)
+                
+                e_solv = float(solv_atoms.get_potential_energy())
+                fmax_val = float(np.max(np.linalg.norm(solv_atoms.get_forces(), axis=1)))
+                
+                # Differential solvation energy: E(MOF+ads+nH2O) - E(MOF+ads) - n*E(H2O)
+                delta_e_solv = e_solv - e_dry - n_w * e_h2o_ref
+                e_hb_per_w = delta_e_solv / n_w
+                
+                # Save structure
+                out_cif = OUT_DIR / f"{tag}.cif"
+                ase.io.write(str(out_cif), solv_atoms, format="cif")
+                
+                records.append({
+                    "qmof_id": q_id,
+                    "metal": metal,
+                    "reaction": rxn,
+                    "state": state,
+                    "n_waters": n_w,
+                    "total_energy_eV": e_solv,
+                    "solvation_energy_eV": delta_e_solv,
+                    "h_bond_stabilization_per_water_eV": e_hb_per_w,
+                    "fmax_eV_A": fmax_val
+                })
+                logger.info(f"  -> {tag}: ΔE_solv = {delta_e_solv:.3f} eV ({e_hb_per_w:.3f} eV/H2O) | fmax = {fmax_val:.3f} eV/Å")
+
+        df = pd.DataFrame(records)
+        df.to_csv(CSV_OUTPUT, index=False)
+        logger.info(f"Saved solvation thermodynamics to {CSV_OUTPUT}")
 
     # =========================================================================
     # THERMODYNAMIC SCALING RELATION & SELECTIVITY COMPUTATIONS
@@ -351,15 +364,15 @@ def main():
             gap = g_ooh - g_oh
             ax_scaling.scatter(g_oh, g_ooh, color=colors_w[nw], s=120, edgecolors="k", zorder=5,
                                label=rf"$n_{{\mathrm{{H_2O}}}} = {nw}$ ($\Delta\Delta G = {gap:.2f}$ eV)")
-            ax_scaling.annotate(f"{nw} H$_2$O\n({gap:.2f} eV)", (g_oh + 0.03, g_ooh - 0.08), fontsize=9)
+            ax_scaling.annotate(f"{nw} H$_2$O\n({gap:.2f} eV)", (g_oh + 0.03, g_ooh - 0.08), fontsize=8.5)
 
-    ax_scaling.set_xlim([0.8, 2.0])
-    ax_scaling.set_ylim([3.8, 5.0])
+    ax_scaling.set_xlim([0.7, 2.1])
+    ax_scaling.set_ylim([3.7, 5.3])
     ax_scaling.set_xlabel(r"$\Delta G_{*\mathrm{OH}}$ (eV)")
     ax_scaling.set_ylabel(r"$\Delta G_{*\mathrm{OOH}}$ (eV)")
     ax_scaling.set_title(r"(a) Scaling Relation Breaking via Pore Micro-Solvation")
-    ax_scaling.legend(loc="upper left", fontsize=8.2)
-    ax_scaling.grid(True, linestyle=":", alpha=0.5)
+    ax_scaling.legend(loc="upper left", frameon=False, fontsize=8.2)
+    ax_scaling.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
 
     # --- PANEL B: OER Free Energy Profile Reduction at U = 1.23 V ---
     steps_x = [0, 1, 2, 3, 4]
@@ -392,10 +405,11 @@ def main():
     
     ax_oer_profile.set_xticks(steps_x)
     ax_oer_profile.set_xticklabels(labels_x)
+    ax_oer_profile.set_ylim([-0.4, 2.5])
     ax_oer_profile.set_ylabel(r"Gibbs Free Energy $\Delta G$ (eV) at $U = 1.23$ V")
     ax_oer_profile.set_title(r"(b) Co-MOF-74 OER Profiles: Overpotential Suppression")
-    ax_oer_profile.legend(loc="upper right", fontsize=8.5)
-    ax_oer_profile.grid(True, linestyle=":", alpha=0.5)
+    ax_oer_profile.legend(loc="upper right", frameon=False, fontsize=8.2)
+    ax_oer_profile.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
 
     # --- PANEL C: CO2RR vs HER Selectivity Shift (Co-MOF-74) ---
     co_co2rr = df_gibbs[(df_gibbs["qmof_id"] == "qmof-73ded45") & (df_gibbs["reaction"] == "CO2RR")]
@@ -420,8 +434,9 @@ def main():
     ax_selectivity.set_ylabel(r"Free Energy / Selectivity Metric (eV)")
     ax_selectivity.set_title(r"(c) Selective Solvation Favors $\mathrm{CO}_2\mathrm{RR}$ Over Parasitic HER")
     ax_selectivity.set_xticks(waters)
-    ax_selectivity.legend(loc="best", fontsize=8.5)
-    ax_selectivity.grid(True, linestyle=":", alpha=0.5)
+    ax_selectivity.set_ylim([-0.8, 1.4])
+    ax_selectivity.legend(loc="upper right", frameon=False, fontsize=8.2)
+    ax_selectivity.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
 
     # --- PANEL D: Hydrogen-Bond Stabilization Energies Across Adsorbates ---
     sub_hb = df[(df["qmof_id"] == "qmof-73ded45") & (df["n_waters"] == 3)].copy()
@@ -433,10 +448,11 @@ def main():
     colors_bar = ["#1f77b4", "#aec7e8", "#2ca02c", "#ff7f0e", "#ffbb78", "#c7c7c7"]
     
     bars = ax_hbonds.bar(order, y_hb, color=colors_bar, edgecolor="black", width=0.55)
-    ax_hbonds.axhline(0, color="k", linewidth=1.0)
+    ax_hbonds.axhline(0, color="k", linewidth=0.8)
+    ax_hbonds.set_ylim([-1.2, 0.4])
     ax_hbonds.set_ylabel(r"$\Delta E_{\mathrm{HB}}$ per $\mathrm{H_2O}$ Molecule (eV/molecule)")
     ax_hbonds.set_title(r"(d) Pore H-Bond Stabilization Energy ($n_{\mathrm{H_2O}} = 3$)")
-    ax_hbonds.grid(True, linestyle=":", alpha=0.5, axis="y")
+    ax_hbonds.grid(True, linestyle=":", alpha=0.5, axis="y", linewidth=0.5)
     
     for bar in bars:
         h = bar.get_height()

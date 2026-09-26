@@ -44,3 +44,11 @@ ENV/
 .ipynb_checkpoints/
 *.swp
 *.tmp
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.blg
+manuscript/figures
+test_latex.png

@@ -87,10 +87,19 @@ GAS_REFS = {
 }
 
 mpl.rcParams.update({
+    "text.usetex": True,
     "font.family": "serif",
-    "font.size": 10.5,
-    "axes.labelsize": 11.5,
-    "axes.titlesize": 12.5,
+    "font.serif": ["Times"],
+    "text.latex.preamble": r"\usepackage{mathptmx}\usepackage{amsmath}\usepackage{amssymb}",
+    "font.size": 10,
+    "axes.linewidth": 0.6,
+    "xtick.major.width": 0.6,
+    "ytick.major.width": 0.6,
+    "xtick.direction": "in",
+    "ytick.direction": "in",
+    "xtick.top": True,
+    "ytick.right": True,
+    "legend.fontsize": 8.5,
     "lines.linewidth": 1.8,
     "figure.dpi": 300,
     "savefig.dpi": 300,
@@ -200,160 +209,156 @@ def main():
         logger.error("Required dataset files missing.")
         sys.exit(1)
 
-    meta_df = pd.read_csv(FILTERED_CSV)
-    cohort = select_cohort(meta_df)
+    if OUTPUT_CSV.exists():
+        logger.info(f"Loading existing high-throughput screening data from {OUTPUT_CSV}...")
+        res_df = pd.read_csv(OUTPUT_CSV)
+    else:
+        meta_df = pd.read_csv(FILTERED_CSV)
+        cohort = select_cohort(meta_df)
 
-    # Initialize MACE-MP-0 on GPU
-    logger.info(f"Initializing MACE-MP-0 ({MODEL_SIZE}) on {DEVICE}...")
-    calc = mace_mp(model=MODEL_SIZE, device=DEVICE, default_dtype=DTYPE)
+        # Initialize MACE-MP-0 on GPU
+        logger.info(f"Initializing MACE-MP-0 ({MODEL_SIZE}) on {DEVICE}...")
+        calc = mace_mp(model=MODEL_SIZE, device=DEVICE, default_dtype=DTYPE)
 
-    zf = zipfile.ZipFile(ZIP_PATH, "r")
-    nested_bytes = zf.read("qmof_database/relaxed_structures.zip")
-    nested_zf = zipfile.ZipFile(io.BytesIO(nested_bytes))
-    results = []
+        zf = zipfile.ZipFile(ZIP_PATH, "r")
+        nested_bytes = zf.read("qmof_database/relaxed_structures.zip")
+        nested_zf = zipfile.ZipFile(io.BytesIO(nested_bytes))
+        results = []
 
-    for idx, row in cohort.iterrows():
-        q_id = row["qmof_id"]
-        metal = row["primary_metal"]
-        pld = row["info.pld"]
-        lcd = row["info.lcd"]
-        bandgap = row.get("outputs.pbe.bandgap", 1.5)
-        
-        pristine_cif = PRISTINE_DIR / f"{q_id}.cif"
-        if not pristine_cif.exists():
-            if not extract_cif_from_zip(nested_zf, q_id, pristine_cif):
-                logger.warning(f"Could not extract CIF for {q_id}, skipping.")
+        for idx, row in cohort.iterrows():
+            q_id = row["qmof_id"]
+            metal = row["primary_metal"]
+            pld = row["info.pld"]
+            lcd = row["info.lcd"]
+            bandgap = row.get("outputs.pbe.bandgap", 1.5)
+            
+            pristine_cif = PRISTINE_DIR / f"{q_id}.cif"
+            if not pristine_cif.exists():
+                if not extract_cif_from_zip(nested_zf, q_id, pristine_cif):
+                    logger.warning(f"Could not extract CIF for {q_id}, skipping.")
+                    continue
+
+            try:
+                atoms = ase.io.read(str(pristine_cif))
+            except Exception as e:
+                logger.warning(f"Failed to read CIF for {q_id}: {e}")
                 continue
 
-        try:
-            atoms = ase.io.read(str(pristine_cif))
-        except Exception as e:
-            logger.warning(f"Failed to read CIF for {q_id}: {e}")
-            continue
+            # Find transition metal active site
+            metal_indices = [i for i, at in enumerate(atoms) if at.symbol == metal]
+            if not metal_indices:
+                continue
+            m_idx = metal_indices[0]
 
-        # Find transition metal active site
-        metal_indices = [i for i, at in enumerate(atoms) if at.symbol == metal]
-        if not metal_indices:
-            continue
-        m_idx = metal_indices[0]
-
-        # Calculate coordination and pore normal
-        dists = atoms.get_distances(m_idx, range(len(atoms)), mic=True)
-        coord_indices = [i for i, d in enumerate(dists) if 0.1 < d < 2.5]
-        coord_num = len(coord_indices)
-        
-        if coord_indices:
-            vecs = atoms.get_distances(m_idx, coord_indices, mic=True, vector=True)
-            u_open = -np.mean(vecs, axis=0)
-            if np.linalg.norm(u_open) < 0.1:
-                u_open = np.array([0.0, 0.0, 1.0])
-            else:
-                u_open /= np.linalg.norm(u_open)
-        else:
-            u_open = np.array([0.0, 0.0, 1.0])
-
-        logger.info(f"[{idx+1}/{len(cohort)}] Screening {q_id} ({metal}, PLD={pld:.2f} Å, Coord={coord_num})...")
-
-        # 1. Clean MOF ground state
-        atoms.calc = calc
-        dyn = BFGS(atoms, logfile=None)
-        dyn.run(fmax=FMAX_SCALEUP, steps=MAX_STEPS)
-        e_clean = float(atoms.get_potential_energy())
-
-        # Intermediates to screen
-        inter_configs = [
-            ("*H", 1.55),
-            ("*OH", 1.95),
-            ("*O", 1.80),
-            ("*OOH", 1.95),
-            ("*COOH", 1.95),
-            ("*CO", 1.90)
-        ]
-
-        energies = {}
-        for ads_type, b_dist in inter_configs:
-            struct = build_adsorbate(atoms, m_idx, ads_type, b_dist, u_open)
-            struct.calc = calc
-            dyn = BFGS(struct, logfile=None)
-            dyn.run(fmax=FMAX_SCALEUP, steps=MAX_STEPS)
-            e_tot = float(struct.get_potential_energy())
-            fmax_val = float(np.max(np.linalg.norm(struct.get_forces(), axis=1)))
+            # Calculate coordination and pore normal
+            dists = atoms.get_distances(m_idx, range(len(atoms)), mic=True)
+            coord_indices = [i for i, d in enumerate(dists) if 0.1 < d < 2.5]
+            coord_num = len(coord_indices)
             
-            # Check for steric clash
-            if fmax_val > 5.0:
-                logger.warning(f"Steric clash in {q_id} {ads_type} (fmax={fmax_val:.1f} eV/Å). Setting boundary penalty.")
-                e_tot = e_clean + 10.0
+            if coord_indices:
+                vecs = atoms.get_distances(m_idx, coord_indices, mic=True, vector=True)
+                u_open = -np.mean(vecs, axis=0)
+                if np.linalg.norm(u_open) < 0.1:
+                    u_open = np.array([0.0, 0.0, 1.0])
+                else:
+                    u_open /= np.linalg.norm(u_open)
+            else:
+                u_open = np.array([0.0, 0.0, 1.0])
 
-            energies[ads_type] = e_tot
+            logger.info(f"[{idx+1}/{len(cohort)}] Screening {q_id} ({metal}, PLD={pld:.2f} Å, Coord={coord_num})...")
 
-        # Calculate reaction free energies (CHE, U=0 V, pH=0)
-        # HER: * + 1/2 H2 -> *H
-        dE_H = energies["*H"] - e_clean - 0.5 * GAS_REFS["H2"]
-        dG_H = dE_H + THERMO_CORR["*H"]["dG_corr"]
-        eta_HER = abs(dG_H)
+            # 1. Clean MOF ground state
+            atoms.calc = calc
+            dyn = BFGS(atoms, logfile=None)
+            dyn.run(fmax=FMAX_SCALEUP, steps=MAX_STEPS)
+            e_clean = float(atoms.get_potential_energy())
 
-        # OER:
-        # Step 1: H2O + * -> *OH + H+ + e-
-        dE_OH = energies["*OH"] - e_clean - (GAS_REFS["H2O"] - 0.5 * GAS_REFS["H2"])
-        dG_OH = dE_OH + THERMO_CORR["*OH"]["dG_corr"]
+            # Intermediates to screen
+            inter_configs = [
+                ("*H", 1.55),
+                ("*OH", 1.95),
+                ("*O", 1.80),
+                ("*OOH", 1.95),
+                ("*COOH", 1.95),
+                ("*CO", 1.90)
+            ]
 
-        # Step 2: *OH -> *O + H+ + e-
-        dE_O = energies["*O"] - e_clean - (GAS_REFS["H2O"] - GAS_REFS["H2"])
-        dG_O = dE_O + THERMO_CORR["*O"]["dG_corr"]
+            energies = {}
+            for ads_type, b_dist in inter_configs:
+                struct = build_adsorbate(atoms, m_idx, ads_type, b_dist, u_open)
+                struct.calc = calc
+                dyn = BFGS(struct, logfile=None)
+                dyn.run(fmax=FMAX_SCALEUP, steps=MAX_STEPS)
+                e_tot = float(struct.get_potential_energy())
+                fmax_val = float(np.max(np.linalg.norm(struct.get_forces(), axis=1)))
+                
+                # Check for steric clash
+                if fmax_val > 5.0:
+                    logger.warning(f"Steric clash in {q_id} {ads_type} (fmax={fmax_val:.1f} eV/Å). Setting boundary penalty.")
+                    e_tot = e_clean + 10.0
 
-        # Step 3: *O + H2O -> *OOH + H+ + e-
-        dE_OOH = energies["*OOH"] - e_clean - (2 * GAS_REFS["H2O"] - 1.5 * GAS_REFS["H2"])
-        dG_OOH = dE_OOH + THERMO_CORR["*OOH"]["dG_corr"]
+                energies[ads_type] = e_tot
 
-        dg1 = dG_OH
-        dg2 = dG_O - dG_OH
-        dg3 = dG_OOH - dG_O
-        dg4 = 4.92 - dG_OOH
-        pds_val = max([dg1, dg2, dg3, dg4])
-        eta_OER = max(0.0, pds_val - 1.23)
+            # Calculate reaction free energies (CHE, U=0 V, pH=0)
+            dE_H = energies["*H"] - e_clean - 0.5 * GAS_REFS["H2"]
+            dG_H = dE_H + THERMO_CORR["*H"]["dG_corr"]
+            eta_HER = abs(dG_H)
 
-        # CO2RR:
-        # CO2 + H+ + e- + * -> *COOH
-        dE_COOH = energies["*COOH"] - e_clean - (GAS_REFS["CO2"] + 0.5 * GAS_REFS["H2"])
-        dG_COOH = dE_COOH + THERMO_CORR["*COOH"]["dG_corr"]
+            # OER:
+            dE_OH = energies["*OH"] - e_clean - (GAS_REFS["H2O"] - 0.5 * GAS_REFS["H2"])
+            dG_OH = dE_OH + THERMO_CORR["*OH"]["dG_corr"]
 
-        # *COOH + H+ + e- -> *CO + H2O
-        dE_CO = energies["*CO"] - e_clean - (GAS_REFS["CO2"] + GAS_REFS["H2"] - GAS_REFS["H2O"])
-        dG_CO = dE_CO + THERMO_CORR["*CO"]["dG_corr"]
+            dE_O = energies["*O"] - e_clean - (GAS_REFS["H2O"] - GAS_REFS["H2"])
+            dG_O = dE_O + THERMO_CORR["*O"]["dG_corr"]
 
-        dg_co2_1 = dG_COOH
-        dg_co2_2 = dG_CO - dG_COOH
-        eta_CO2RR = max(0.0, max(dg_co2_1, dg_co2_2) - (-0.11))
+            dE_OOH = energies["*OOH"] - e_clean - (2 * GAS_REFS["H2O"] - 1.5 * GAS_REFS["H2"])
+            dG_OOH = dE_OOH + THERMO_CORR["*OOH"]["dG_corr"]
 
-        # Selectivity CO2RR vs HER
-        delta_G_sel = dG_COOH - dG_H
+            dg1 = dG_OH
+            dg2 = dG_O - dG_OH
+            dg3 = dG_OOH - dG_O
+            dg4 = 4.92 - dG_OOH
+            pds_val = max([dg1, dg2, dg3, dg4])
+            eta_OER = max(0.0, pds_val - 1.23)
 
-        results.append({
-            "qmof_id": q_id,
-            "metal": metal,
-            "pld_A": pld,
-            "lcd_A": lcd,
-            "bandgap_eV": bandgap,
-            "coord_number": coord_num,
-            "natoms": len(atoms),
-            "dG_H_eV": dG_H,
-            "eta_HER_V": eta_HER,
-            "dG_OH_eV": dG_OH,
-            "dG_O_eV": dG_O,
-            "dG_OOH_eV": dG_OOH,
-            "eta_OER_V": eta_OER,
-            "dG_COOH_eV": dG_COOH,
-            "dG_CO_eV": dG_CO,
-            "eta_CO2RR_V": eta_CO2RR,
-            "delta_G_sel_eV": delta_G_sel,
-            "prefers_CO2RR": (delta_G_sel < 0.0)
-        })
+            # CO2RR:
+            dE_COOH = energies["*COOH"] - e_clean - (GAS_REFS["CO2"] + 0.5 * GAS_REFS["H2"])
+            dG_COOH = dE_COOH + THERMO_CORR["*COOH"]["dG_corr"]
 
-    zf.close()
+            dE_CO = energies["*CO"] - e_clean - (GAS_REFS["CO2"] + GAS_REFS["H2"] - GAS_REFS["H2O"])
+            dG_CO = dE_CO + THERMO_CORR["*CO"]["dG_corr"]
 
-    res_df = pd.DataFrame(results)
-    res_df.to_csv(OUTPUT_CSV, index=False)
-    logger.info(f"Saved high-throughput screening data ({len(res_df)} systems) to {OUTPUT_CSV}")
+            dg_co2_1 = dG_COOH
+            dg_co2_2 = dG_CO - dG_COOH
+            eta_CO2RR = max(0.0, max(dg_co2_1, dg_co2_2) - (-0.11))
+
+            delta_G_sel = dG_COOH - dG_H
+
+            results.append({
+                "qmof_id": q_id,
+                "metal": metal,
+                "pld_A": pld,
+                "lcd_A": lcd,
+                "bandgap_eV": bandgap,
+                "coord_number": coord_num,
+                "natoms": len(atoms),
+                "dG_H_eV": dG_H,
+                "eta_HER_V": eta_HER,
+                "dG_OH_eV": dG_OH,
+                "dG_O_eV": dG_O,
+                "dG_OOH_eV": dG_OOH,
+                "eta_OER_V": eta_OER,
+                "dG_COOH_eV": dG_COOH,
+                "dG_CO_eV": dG_CO,
+                "eta_CO2RR_V": eta_CO2RR,
+                "delta_G_sel_eV": delta_G_sel,
+                "prefers_CO2RR": (delta_G_sel < 0.0)
+            })
+
+        zf.close()
+        res_df = pd.DataFrame(results)
+        res_df.to_csv(OUTPUT_CSV, index=False)
+        logger.info(f"Saved high-throughput screening data ({len(res_df)} systems) to {OUTPUT_CSV}")
 
     # =========================================================================
     # PLOTTING FIGURE 9: 4-PANEL PUBLICATION SCALE-UP SUMMARY
@@ -372,22 +377,21 @@ def main():
     # --- Panel A: HER Sabatier Volcano Curve ---
     x_volc = np.linspace(-1.5, 1.5, 200)
     ax_her.plot(x_volc, np.abs(x_volc), "k--", label=r"Sabatier Volcano Limit: $\eta = |\Delta G_{*\mathrm{H}}|$")
-    for m in res_df["metal"].unique():
+    for m in sorted(res_df["metal"].unique()):
         sub = res_df[res_df["metal"] == m]
         ax_her.scatter(sub["dG_H_eV"], sub["eta_HER_V"], color=metal_palette.get(m, "gray"),
-                       s=80, edgecolors="k", alpha=0.9, label=m)
+                       s=75, edgecolors="k", alpha=0.9, label=m)
 
-    ax_her.set_xlim([-1.2, 1.2])
-    ax_her.set_ylim([0, 1.3])
+    ax_her.set_xlim([-1.3, 1.3])
+    ax_her.set_ylim([0, 1.65])
     ax_her.set_xlabel(r"$\Delta G_{*\mathrm{H}}$ (eV)")
     ax_her.set_ylabel(r"HER Overpotential $\eta^{\mathrm{HER}}$ (V)")
     ax_her.set_title(r"(a) HER Sabatier Volcano Across Transition Metal MOF Cohort")
-    ax_her.legend(ncol=3, fontsize=8.2, loc="upper right")
-    ax_her.grid(True, linestyle=":", alpha=0.5)
+    ax_her.legend(ncol=4, fontsize=8.0, loc="upper center", bbox_to_anchor=(0.5, 0.98), frameon=False)
+    ax_her.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
 
     # --- Panel B: OER Scaling Relation ---
-    x_oer = np.linspace(-0.5, 3.0, 100)
-    # Fit linear scaling
+    x_oer = np.linspace(-0.2, 2.8, 100)
     valid_oer = res_df[(res_df["dG_OH_eV"] > -2.0) & (res_df["dG_OOH_eV"] < 8.0)]
     if len(valid_oer) > 5:
         p = np.polyfit(valid_oer["dG_OH_eV"], valid_oer["dG_OOH_eV"], 1)
@@ -396,18 +400,18 @@ def main():
     ax_oer.plot(x_oer, 0.95 * x_oer + 3.20, "k--", label=r"Universal Oxide Scaling: $\Delta G + 3.20$ eV")
     ax_oer.plot(x_oer, x_oer + 2.46, "g:", label=r"Ideal Non-Overpotential Limit ($\Delta G + 2.46$ eV)")
 
-    for m in res_df["metal"].unique():
+    for m in sorted(res_df["metal"].unique()):
         sub = valid_oer[valid_oer["metal"] == m]
         ax_oer.scatter(sub["dG_OH_eV"], sub["dG_OOH_eV"], color=metal_palette.get(m, "gray"),
-                       s=80, edgecolors="k", alpha=0.9)
+                       s=75, edgecolors="k", alpha=0.9)
 
-    ax_oer.set_xlim([0.0, 2.5])
-    ax_oer.set_ylim([3.0, 6.0])
+    ax_oer.set_xlim([0.0, 2.6])
+    ax_oer.set_ylim([3.0, 6.8])
     ax_oer.set_xlabel(r"$\Delta G_{*\mathrm{OH}}$ (eV)")
     ax_oer.set_ylabel(r"$\Delta G_{*\mathrm{OOH}}$ (eV)")
     ax_oer.set_title(r"(b) OER Universal Scaling Relation Breakdown Across MOFs")
-    ax_oer.legend(loc="upper left", fontsize=8.2)
-    ax_oer.grid(True, linestyle=":", alpha=0.5)
+    ax_oer.legend(loc="upper left", frameon=False, fontsize=8.0)
+    ax_oer.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
 
     # --- Panel C: 2D Selectivity Map (CO2RR vs HER) ---
     diag = np.linspace(-1.5, 2.0, 100)
@@ -415,29 +419,29 @@ def main():
     ax_sel.fill_between(diag, diag, 3.0, color="#d95f02", alpha=0.15, label=r"Favors HER (Parasitic)")
     ax_sel.fill_between(diag, -2.0, diag, color="#1b9e77", alpha=0.15, label=r"Favors $\mathrm{CO}_2\mathrm{RR}$")
 
-    for m in res_df["metal"].unique():
+    for m in sorted(res_df["metal"].unique()):
         sub = res_df[res_df["metal"] == m]
         ax_sel.scatter(sub["dG_H_eV"], sub["dG_COOH_eV"], color=metal_palette.get(m, "gray"),
-                       s=80, edgecolors="k", alpha=0.9, label=m)
+                       s=75, edgecolors="k", alpha=0.9, label=m)
 
     ax_sel.set_xlim([-1.2, 1.5])
-    ax_sel.set_ylim([-1.2, 2.5])
+    ax_sel.set_ylim([-1.2, 2.6])
     ax_sel.set_xlabel(r"$\Delta G_{*\mathrm{H}}$ (eV)")
     ax_sel.set_ylabel(r"$\Delta G_{*\mathrm{COOH}}$ (eV)")
     ax_sel.set_title(r"(c) $\mathrm{CO}_2\mathrm{RR}$ vs HER Selectivity Map")
-    ax_sel.legend(ncol=2, fontsize=8.0, loc="lower right")
-    ax_sel.grid(True, linestyle=":", alpha=0.5)
+    ax_sel.legend(ncol=2, fontsize=8.0, loc="lower right", frameon=False)
+    ax_sel.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
 
     # --- Panel D: Descriptor Correlation (PLD & Bandgap vs Overpotential) ---
     sc = ax_desc.scatter(res_df["pld_A"], res_df["eta_OER_V"], c=res_df["bandgap_eV"],
-                         cmap="viridis", s=100, edgecolors="k", alpha=0.9)
+                         cmap="viridis", s=90, edgecolors="k", alpha=0.9)
     cbar = plt.colorbar(sc, ax=ax_desc)
     cbar.set_label("DFT Bandgap (eV)")
 
     ax_desc.set_xlabel(r"Pore Limiting Diameter: PLD ($\mathrm{\AA}$)")
     ax_desc.set_ylabel(r"OER Overpotential $\eta^{\mathrm{OER}}$ (V)")
     ax_desc.set_title(r"(d) Structural-Electronic Activity Correlation")
-    ax_desc.grid(True, linestyle=":", alpha=0.5)
+    ax_desc.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
 
     plt.tight_layout()
     png_path = FIG_DIR / "fig9_high_throughput_scaling_distributions.png"

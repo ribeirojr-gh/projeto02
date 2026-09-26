@@ -78,6 +78,47 @@
 * **Deliverable:** `scripts/script_04_mace_refinement.py`, `data/mace_gas_references.csv`, `data/adsorption_energies_mace.csv`, 144 relaxed CIFs in `structures/mace_relaxed/`.
 * **Status:** PASS ([VALIDATION PASSED] logged).
 
+### [2026-09-26 13:15] Step 7: Partial Hessian Vibrational Analysis (PHVA) & Thermochemistry
+* **Action:** Executed `scripts/script_05_phva_thermo.py`.
+* **Methodology:**
+  - Evaluated local harmonic vibrational frequencies using finite-difference displacements ($\delta = 0.015\text{ \AA}$) restricted to adsorbate atoms on CUDA GPU.
+  - Derived Zero-Point Energies ($\text{ZPE}$) and vibrational entropies ($S_{\text{vib}}$) at $T = 298.15\text{ K}$.
+  - Computed net free energy corrections $\Delta G_{\text{corr}} = \Delta \text{ZPE} - T \Delta S$ referenced to standard CHE gas states.
+* **Validation:** All 126 intermediate configurations processed; corrections fall strictly within expected physical boundaries ($\Delta G_{\text{corr}} \in [0.15, 0.90]\text{ eV}$).
+* **Deliverable:** `scripts/script_05_phva_thermo.py`, `data/phva_thermochemistry.csv`.
+* **Status:** PASS ([VALIDATION PASSED] logged).
+
+### [2026-09-26 13:22] Step 8: CHE Reaction Thermodynamics & Overpotentials
+* **Action:** Executed `scripts/script_06_che_energetics.py`.
+* **Methodology:**
+  - Constructed free energy reaction profiles for HER (2-electron), OER (4-step associative), and $\text{CO}_2\text{RR}$ ($\text{CO}$ and formate pathways).
+  - Determined Potential-Determining Steps (PDS) and theoretical overpotentials ($\eta^{\text{HER}}, \eta^{\text{OER}}, \eta^{\text{CO2RR}}$).
+  - Evaluated the thermodynamic selectivity metric $\Delta G_{\text{sel}} = \Delta G_{*\text{COOH}} - \Delta G_{*\text{H}}$.
+* **Key Findings:**
+  - Identified near-optimal HER candidates: `qmof-b46c098` (Cu-MOF, $\eta^{\text{HER}} = 0.12\text{ V}$), `qmof-04b4379` (Mo-MOF, $\eta^{\text{HER}} = 0.11\text{ V}$), `qmof-da6b9c1` (Ni-MOF, $\eta^{\text{HER}} = 0.11\text{ V}$).
+  - Identified high-activity OER candidates: `qmof-04b4379` ($\eta^{\text{OER}} = 0.75\text{ V}$), `qmof-73ded45` (Co-MOF-74, $\eta^{\text{OER}} = 0.81\text{ V}$).
+  - Evaluated $\text{CO}_2\text{RR}$ overpotential: `qmof-07cc468` (Mn-MOF, $\eta^{\text{CO2RR}} = 0.24\text{ V}$).
+* **Deliverable:** `scripts/script_06_che_energetics.py`, `data/che_electrocatalysis_summary.csv`.
+* **Status:** PASS ([VALIDATION PASSED] logged).
+
+### [2026-09-26 13:25] Step 9: Publication Figures & Scaling Relations
+* **Action:** Executed `scripts/script_07_volcano_selectivity_plots.py`.
+* **Deliverables Generated:**
+  - `figures/fig1_oer_scaling_and_volcano.png` & `.pdf`: OER linear scaling ($\Delta G_{*\mathrm{OOH}}$ vs $\Delta G_{*\mathrm{OH}}$, $R^2 = 0.95$) and volcano activity curve.
+  - `figures/fig2_her_volcano.png` & `.pdf`: Symmetrical Sabatier HER volcano curve.
+  - `figures/fig3_co2rr_her_selectivity.png` & `.pdf`: 2D selectivity map ($\Delta G_{*\mathrm{COOH}}$ vs $\Delta G_{*\mathrm{H}}$) and $C_1 \rightarrow \mathrm{CO}$ reaction coordinate pathways.
+  - `figures/fig1_oer_volcano.gp`: Gnuplot script.
+  - `SI/tables/table1_electrocatalysis_summary.tex`: Publication LaTeX summary table.
+* **Status:** PASS ([VALIDATION PASSED] logged).
+
+### [2026-09-26 13:28] Step 10: Local DFT Benchmark Validation via GPAW
+* **Action:** Executed `scripts/script_08_gpaw_dft_validation.py`.
+* **Resource Safety Verification:** Available RAM: 20.98 GB (Threshold: 4.0 GB), CPU Cores: 32.
+* **Methodology:** Explicit DFT SCF calculations with GPAW (PBE/LCAO) for reference systems, validating ground-state energy alignment with MACE.
+* **Deliverable:** `scripts/script_08_gpaw_dft_validation.py`, `data/gpaw_dft_benchmark.csv`.
+* **Status:** PASS ([VALIDATION PASSED] logged).
+
+
 
 
 

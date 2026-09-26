@@ -1,0 +1,52 @@
+\documentclass[journal=jacsat,manuscript=suppinfo]{achemso}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\title{Supporting Information: Mechanistic High-Throughput Screening of HER, OER, and CO$_2$RR in Metal--Organic Frameworks via Equivariant Machine Learning Interatomic Potentials}
+
+\author{Luiz Antonio Ribeiro Junior}
+\affiliation{Institute of Physics, University of Bras\'{i}lia (UnB), 70910-900 Bras\'{i}lia, DF, Brazil}
+\alsoaffiliation{Department of Physics, Norwegian University of Science and Technology (NTNU), Trondheim, Norway}
+\email{ribeirojr.fis@gmail.com}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+\input{methods_SI.tex}
+
+\newpage
+\section{Supplementary Figures}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{../figures/fig1_oer_scaling_and_volcano.pdf}
+    \caption{\textbf{OER Energetics on MOF Open Metal Sites.} (a) Linear scaling relation between $\Delta G_{*\mathrm{OOH}}$ and $\Delta G_{*\mathrm{OH}}$, benchmarking against the universal oxide scaling line. (b) Theoretical OER activity volcano curve showing overpotential $\eta^{\mathrm{OER}}$ as a function of the descriptor $\Delta G_{*\mathrm{O}} - \Delta G_{*\mathrm{OH}}$.}
+    \label{fig:oer_volcano}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.65\textwidth]{../figures/fig2_her_volcano.pdf}
+    \caption{\textbf{HER Sabatier Volcano Curve.} Theoretical overpotential proxy $-\eta^{\mathrm{HER}}$ as a function of the hydrogen adsorption free energy $\Delta G_{*\mathrm{H}}$. Symmetrical optimal activity peak at $\Delta G_{*\mathrm{H}} = 0\,\mathrm{eV}$.}
+    \label{fig:her_volcano}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{../figures/fig3_co2rr_her_selectivity.pdf}
+    \caption{\textbf{CO$_2$RR vs. HER Selectivity and Reaction Coordinates.} (a) Two-dimensional selectivity map comparing $\Delta G_{*\mathrm{COOH}}$ and $\Delta G_{*\mathrm{H}}$, identifying the boundary between HER-dominant and CO$_2$RR-selective regimes. (b) Free energy profiles for the $C_1 \rightarrow \mathrm{CO}$ reduction pathway across representative MOF metal centers at $U = 0\,\mathrm{V}$.}
+    \label{fig:co2rr_selectivity}
+\end{figure}
+
+\newpage
+\section{Supplementary Tables}
+\input{tables/table1_electrocatalysis_summary.tex}
+
+\end{document}

@@ -52,3 +52,6 @@ ENV/
 *.blg
 manuscript/figures
 test_latex.png
+
+# Manuscript, cover letter and paper files: Drive-only (R6 confidentiality rule)
+manuscript/

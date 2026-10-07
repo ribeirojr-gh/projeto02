@@ -55,3 +55,6 @@ test_latex.png
 
 # Manuscript, cover letter and paper files: Drive-only (R6 confidentiality rule)
 manuscript/
+SI/SI.tex
+SI/methods_SI.tex
+# Note: SI/tables/*.tex are generated data outputs, not manuscript prose, and stay tracked.

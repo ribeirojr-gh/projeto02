@@ -229,7 +229,14 @@ def plot_co2rr_selectivity_and_pathways(df: pd.DataFrame):
     labels = [r"$\mathrm{CO}_2(\mathrm{g}) + *$", r"$*\mathrm{COOH}$", r"$*\mathrm{CO}$", r"$\mathrm{CO}(\mathrm{g}) + *$"]
 
     # Select representative systems (e.g. Co, Cu, Mn, Mo, Ru)
-    highlight_ids = ["qmof-73ded45", "qmof-b46c098", "qmof-5a2471d", "qmof-04b4379", "qmof-28c2c0e"]
+    # qmof-07cc468 (originally used here and as the manuscript's CO2RR
+    # headline example) remains non-convergent even at the corrected step
+    # budget (*COOH and *CO intermediates both fail fmax<0.03 eV/A). It is
+    # replaced here, and as the manuscript's CO2RR champion, by qmof-dc7e5a3
+    # (Co), which is fully converged, not steric-congested, has a comparable
+    # overpotential (0.26 V vs the original unverified 0.24 V claim), and has
+    # favorable (negative) CO2RR-vs-HER selectivity.
+    highlight_ids = ["qmof-73ded45", "qmof-b46c098", "qmof-dc7e5a3", "qmof-04b4379", "qmof-28c2c0e"]
     for q_id in highlight_ids:
         row_match = valid[valid["qmof_id"] == q_id]
         if not row_match.empty:

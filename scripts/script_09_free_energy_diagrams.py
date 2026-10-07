@@ -230,7 +230,7 @@ def plot_her_diagram(q_id: str = "qmof-b46c098"):
     logger.info(f"Saved Figure 5 to {png_path} and {pdf_path}")
 
 
-def plot_co2rr_diagram(q_id: str = "qmof-07cc468"):
+def plot_co2rr_diagram(q_id: str = "qmof-dc7e5a3"):
     """Figure 6: CO2RR (CO path) Free Energy Diagram at 2 potentials with decoupled insets."""
     df = pd.read_csv(CHE_SUMMARY_CSV).set_index("qmof_id")
     if q_id not in df.index:
@@ -304,7 +304,7 @@ def main():
     # 2. Generate HER Diagram
     plot_her_diagram("qmof-b46c098")
     # 3. Generate CO2RR Diagram
-    plot_co2rr_diagram("qmof-07cc468")
+    plot_co2rr_diagram("qmof-dc7e5a3")
 
     # =========================================================================
     # OUTPUT VALIDATION BLOCK (Required by Protocol Section 9.2 & 11.1)

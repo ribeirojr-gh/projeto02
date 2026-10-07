@@ -205,9 +205,16 @@ def build_adsorbate(atoms: Atoms, metal_idx: int, ads_type: str, bond_dist: floa
 def main():
     logger.info("=== STEP 12: High-Throughput Electrocatalytic Scale-Up Across Synthesized MOFs ===")
     
-    if not FILTERED_CSV.exists() or not ZIP_PATH.exists():
-        logger.error("Required dataset files missing.")
+    if not FILTERED_CSV.exists():
+        logger.error("Required dataset file missing: %s", FILTERED_CSV)
         sys.exit(1)
+    if not ZIP_PATH.exists():
+        logger.warning(
+            f"{ZIP_PATH} not present (it is .gitignore'd as a >100MB raw archive and "
+            "was never committed). Proceeding without it: all 32 pristine CIFs already "
+            "exist locally in structures/scaleup_pristine/ from the original run, so the "
+            "zip is only needed as a fallback for any structure missing locally."
+        )
 
     if OUTPUT_CSV.exists():
         logger.info(f"Loading existing high-throughput screening data from {OUTPUT_CSV}...")
@@ -220,9 +227,11 @@ def main():
         logger.info(f"Initializing MACE-MP-0 ({MODEL_SIZE}) on {DEVICE}...")
         calc = mace_mp(model=MODEL_SIZE, device=DEVICE, default_dtype=DTYPE)
 
-        zf = zipfile.ZipFile(ZIP_PATH, "r")
-        nested_bytes = zf.read("qmof_database/relaxed_structures.zip")
-        nested_zf = zipfile.ZipFile(io.BytesIO(nested_bytes))
+        nested_zf = None
+        if ZIP_PATH.exists():
+            zf = zipfile.ZipFile(ZIP_PATH, "r")
+            nested_bytes = zf.read("qmof_database/relaxed_structures.zip")
+            nested_zf = zipfile.ZipFile(io.BytesIO(nested_bytes))
         results = []
 
         for idx, row in cohort.iterrows():
@@ -234,8 +243,8 @@ def main():
             
             pristine_cif = PRISTINE_DIR / f"{q_id}.cif"
             if not pristine_cif.exists():
-                if not extract_cif_from_zip(nested_zf, q_id, pristine_cif):
-                    logger.warning(f"Could not extract CIF for {q_id}, skipping.")
+                if nested_zf is None or not extract_cif_from_zip(nested_zf, q_id, pristine_cif):
+                    logger.warning(f"Could not find or extract CIF for {q_id} (no local file, no zip available), skipping.")
                     continue
 
             try:

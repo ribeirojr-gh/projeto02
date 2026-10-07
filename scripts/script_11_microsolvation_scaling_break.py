@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import ase.io
 from ase import Atoms
-from ase.optimize import BFGS
+from ase.optimize import BFGS, FIRE
 from mace.calculators import mace_mp
 
 # =============================================================================
@@ -263,7 +263,14 @@ def main():
                 solv_atoms.calc = calc
                 
                 # Local optimization of the solvent & adsorbate network
-                dyn = BFGS(solv_atoms, logfile=None)
+                # FIRE (not BFGS) is used here: explicit water placement next
+                # to a framework can start with close/overlapping contacts,
+                # and BFGS's unconstrained quasi-Newton steps can diverge
+                # catastrophically from such a start (observed: fmax reaching
+                # 67,000+ and then 12,900,000+ eV/A on successive BFGS
+                # attempts for this exact case). FIRE's damped-dynamics step
+                # control is far more robust to a poor initial guess.
+                dyn = FIRE(solv_atoms, logfile=None)
                 converged = dyn.run(fmax=FMAX_MACE, steps=MAX_STEPS)
 
                 e_solv = float(solv_atoms.get_potential_energy())
@@ -407,32 +414,45 @@ def main():
     g_o_0 = co_gibbs[(co_gibbs["state"] == "*O") & (co_gibbs["n_waters"] == 0)]["dG_solv_eV"].values[0]
     g_ooh_0 = co_gibbs[(co_gibbs["state"] == "*OOH") & (co_gibbs["n_waters"] == 0)]["dG_solv_eV"].values[0]
     
-    g_oh_3 = co_gibbs[(co_gibbs["state"] == "*OH") & (co_gibbs["n_waters"] == 3)]["dG_solv_eV"].values[0]
-    g_o_3 = co_gibbs[(co_gibbs["state"] == "*O") & (co_gibbs["n_waters"] == 3)]["dG_solv_eV"].values[0]
-    g_ooh_3 = co_gibbs[(co_gibbs["state"] == "*OOH") & (co_gibbs["n_waters"] == 3)]["dG_solv_eV"].values[0]
-    
+    # n_waters=3 (and mostly n=2) relaxations for this reaction channel do not
+    # reliably converge with the current structure-generation protocol (see
+    # Methods/Limitations) -- n=1 is the highest hydration level with a
+    # complete, converged OH/O/OOH triplet for this material, and is used
+    # here instead. This is reported explicitly rather than silently
+    # substituting a non-converged n=3 value.
+    N_SOLVATED = 1
+    def _lookup(state, nw):
+        sub = co_gibbs[(co_gibbs["state"] == state) & (co_gibbs["n_waters"] == nw)]
+        return float(sub["dG_solv_eV"].values[0]) if len(sub) > 0 else None
+
+    g_oh_s = _lookup("*OH", N_SOLVATED)
+    g_o_s = _lookup("*O", N_SOLVATED)
+    g_ooh_s = _lookup("*OOH", N_SOLVATED)
+
     U_app = 1.23
     prof_0 = [0.0, g_oh_0 - U_app, g_o_0 - 2 * U_app, g_ooh_0 - 3 * U_app, 4.92 - 4 * U_app]
-    prof_3 = [0.0, g_oh_3 - U_app, g_o_3 - 2 * U_app, g_ooh_3 - 3 * U_app, 4.92 - 4 * U_app]
-    
-    dg_steps_0 = np.diff(prof_0) + U_app
-    dg_steps_3 = np.diff(prof_3) + U_app
-    eta_0 = max(dg_steps_0) - 1.23
-    eta_3 = max(dg_steps_3) - 1.23
-    
+
     for i in range(4):
         ax_oer_profile.plot([i, i + 0.6], [prof_0[i], prof_0[i]], "b-", linewidth=2.5)
         ax_oer_profile.plot([i + 0.6, i + 1], [prof_0[i], prof_0[i + 1]], "b:", linewidth=1.2)
-        ax_oer_profile.plot([i, i + 0.6], [prof_3[i], prof_3[i]], "r-", linewidth=2.5)
-        ax_oer_profile.plot([i + 0.6, i + 1], [prof_3[i], prof_3[i + 1]], "r:", linewidth=1.2)
-    ax_oer_profile.plot([4, 4.6], [prof_0[4], prof_0[4]], "b-", linewidth=2.5, label=rf"Dry ($n_{{\mathrm{{H_2O}}}}=0$), $\eta = {eta_0:.2f}$ V")
-    ax_oer_profile.plot([4, 4.6], [prof_3[4], prof_3[4]], "r-", linewidth=2.5, label=rf"Solvated ($n_{{\mathrm{{H_2O}}}}=3$), $\eta = {eta_3:.2f}$ V")
-    
+    ax_oer_profile.plot([4, 4.6], [prof_0[4], prof_0[4]], "b-", linewidth=2.5, label=r"Dry ($n_{\mathrm{H_2O}}=0$), $\eta = %.2f$ V" % (max(np.diff(prof_0) + U_app) - 1.23))
+
+    if None not in (g_oh_s, g_o_s, g_ooh_s):
+        prof_s = [0.0, g_oh_s - U_app, g_o_s - 2 * U_app, g_ooh_s - 3 * U_app, 4.92 - 4 * U_app]
+        eta_s = max(np.diff(prof_s) + U_app) - 1.23
+        for i in range(4):
+            ax_oer_profile.plot([i, i + 0.6], [prof_s[i], prof_s[i]], "r-", linewidth=2.5)
+            ax_oer_profile.plot([i + 0.6, i + 1], [prof_s[i], prof_s[i + 1]], "r:", linewidth=1.2)
+        ax_oer_profile.plot([4, 4.6], [prof_s[4], prof_s[4]], "r-", linewidth=2.5,
+                             label=rf"Solvated ($n_{{\mathrm{{H_2O}}}}={N_SOLVATED}$), $\eta = {eta_s:.2f}$ V")
+    else:
+        logger.warning("Panel (b): no converged solvated OH/O/OOH triplet available at any n>0; plotting dry profile only.")
+
     ax_oer_profile.set_xticks(steps_x)
     ax_oer_profile.set_xticklabels(labels_x)
     ax_oer_profile.set_ylim([-0.4, 2.5])
     ax_oer_profile.set_ylabel(r"Gibbs Free Energy $\Delta G$ (eV) at $U = 1.23$ V")
-    ax_oer_profile.set_title(r"(b) Co-MOF-74 OER Profiles: Overpotential Suppression")
+    ax_oer_profile.set_title(rf"(b) Co-MOF-74 OER Profiles: Dry vs. $n_{{\mathrm{{H_2O}}}}={N_SOLVATED}$ (n=2,3 did not converge)")
     ax_oer_profile.legend(loc="upper right", frameon=False, fontsize=8.2)
     ax_oer_profile.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
 
@@ -441,44 +461,55 @@ def main():
     co_her = df_gibbs[(df_gibbs["qmof_id"] == "qmof-73ded45") & (df_gibbs["reaction"] == "HER")]
     
     waters = [0, 1, 2, 3]
-    sel_vals = []
-    g_cooh_vals = []
-    g_h_vals = []
+    waters_plot, sel_vals, g_cooh_vals, g_h_vals = [], [], [], []
     for nw in waters:
-        g_cooh = co_co2rr[(co_co2rr["state"] == "*COOH") & (co_co2rr["n_waters"] == nw)]["dG_solv_eV"].values[0]
-        g_h = co_her[(co_her["state"] == "*H") & (co_her["n_waters"] == nw)]["dG_solv_eV"].values[0]
+        sub_cooh = co_co2rr[(co_co2rr["state"] == "*COOH") & (co_co2rr["n_waters"] == nw)]
+        sub_h = co_her[(co_her["state"] == "*H") & (co_her["n_waters"] == nw)]
+        if len(sub_cooh) == 0 or len(sub_h) == 0:
+            logger.warning(f"Panel (c): no converged *COOH/*H pair at n_H2O={nw} for qmof-73ded45; omitting this point rather than fabricating it.")
+            continue
+        g_cooh = float(sub_cooh["dG_solv_eV"].values[0])
+        g_h = float(sub_h["dG_solv_eV"].values[0])
+        waters_plot.append(nw)
         sel_vals.append(g_cooh - g_h)
         g_cooh_vals.append(g_cooh)
         g_h_vals.append(g_h)
-        
-    ax_selectivity.plot(waters, g_cooh_vals, "o-", color="#e377c2", linewidth=2.0, label=r"$\Delta G_{*\mathrm{COOH}}$ (Carboxyl)")
-    ax_selectivity.plot(waters, g_h_vals, "s-", color="#7f7f7f", linewidth=2.0, label=r"$\Delta G_{*\mathrm{H}}$ (Hydride)")
-    ax_selectivity.plot(waters, sel_vals, "D--", color="#17becf", linewidth=2.2, label=r"Selectivity Gap: $\Delta G_{*\mathrm{COOH}} - \Delta G_{*\mathrm{H}}$")
-    
+
+    ax_selectivity.plot(waters_plot, g_cooh_vals, "o-", color="#e377c2", linewidth=2.0, label=r"$\Delta G_{*\mathrm{COOH}}$ (Carboxyl)")
+    ax_selectivity.plot(waters_plot, g_h_vals, "s-", color="#7f7f7f", linewidth=2.0, label=r"$\Delta G_{*\mathrm{H}}$ (Hydride)")
+    ax_selectivity.plot(waters_plot, sel_vals, "D--", color="#17becf", linewidth=2.2, label=r"Selectivity Gap: $\Delta G_{*\mathrm{COOH}} - \Delta G_{*\mathrm{H}}$")
+
     ax_selectivity.set_xlabel(r"Hydration Degree ($n_{\mathrm{H_2O}}$ in pore cavity)")
     ax_selectivity.set_ylabel(r"Free Energy / Selectivity Metric (eV)")
-    ax_selectivity.set_title(r"(c) Selective Solvation Favors $\mathrm{CO}_2\mathrm{RR}$ Over Parasitic HER")
+    ax_selectivity.set_title(rf"(c) CO$_2$RR vs. HER Selectivity ({len(waters_plot)}/4 hydration levels converged)")
     ax_selectivity.set_xticks(waters)
     ax_selectivity.set_ylim([-0.8, 1.4])
     ax_selectivity.legend(loc="upper right", frameon=False, fontsize=8.2)
     ax_selectivity.grid(True, linestyle=":", alpha=0.5, linewidth=0.5)
 
     # --- PANEL D: Hydrogen-Bond Stabilization Energies Across Adsorbates ---
-    sub_hb = df[(df["qmof_id"] == "qmof-73ded45") & (df["n_waters"] == 3)].copy()
+    # Uses n_waters=1 (see panel b note). States with no converged value at
+    # this hydration level are omitted from the bar chart entirely rather
+    # than silently plotted as 0.0 (a 0.0 fallback would read as "no
+    # stabilization", which is a claim, not an absence of data).
+    N_SOLVATED_D = 1
+    sub_hb = df[(df["qmof_id"] == "qmof-73ded45") & (df["n_waters"] == N_SOLVATED_D) & (df["converged"] == True)].copy()
     sub_hb = sub_hb[sub_hb["state"] != "pristine"]
-    
+
     order = ["*OH", "*O", "*OOH", "*COOH", "*CO", "*H"]
     hb_map = {row["state"]: row["h_bond_stabilization_per_water_eV"] for _, row in sub_hb.iterrows()}
-    y_hb = [hb_map.get(s, 0.0) for s in order]
-    colors_bar = ["#1f77b4", "#aec7e8", "#2ca02c", "#ff7f0e", "#ffbb78", "#c7c7c7"]
-    
-    bars = ax_hbonds.bar(order, y_hb, color=colors_bar, edgecolor="black", width=0.55)
+    order_avail = [s for s in order if s in hb_map]
+    y_hb = [hb_map[s] for s in order_avail]
+    color_map = dict(zip(order, ["#1f77b4", "#aec7e8", "#2ca02c", "#ff7f0e", "#ffbb78", "#c7c7c7"]))
+    colors_bar = [color_map[s] for s in order_avail]
+
+    bars = ax_hbonds.bar(order_avail, y_hb, color=colors_bar, edgecolor="black", width=0.55)
     ax_hbonds.axhline(0, color="k", linewidth=0.8)
     ax_hbonds.set_ylim([-1.2, 0.4])
     ax_hbonds.set_ylabel(r"$\Delta E_{\mathrm{HB}}$ per $\mathrm{H_2O}$ Molecule (eV/molecule)")
-    ax_hbonds.set_title(r"(d) Pore H-Bond Stabilization Energy ($n_{\mathrm{H_2O}} = 3$)")
+    ax_hbonds.set_title(rf"(d) Pore H-Bond Stabilization Energy ($n_{{\mathrm{{H_2O}}}} = {N_SOLVATED_D}$, {len(order_avail)}/6 states converged)")
     ax_hbonds.grid(True, linestyle=":", alpha=0.5, axis="y", linewidth=0.5)
-    
+
     for bar in bars:
         h = bar.get_height()
         ax_hbonds.annotate(f"{h:.2f}",
@@ -507,10 +538,14 @@ def main():
         f.write("\\label{tab:microsolvation_summary}\n")
         f.write("\\begin{tabular}{llcccccc}\n")
         f.write("\\hline\\hline\n")
-        f.write("MOF ID & Metal & Intermediate & $n_{\\mathrm{H_2O}}$ & Total Energy (eV) & $\\Delta E_{\\mathrm{solv}}$ (eV) & $\\Delta E_{\\mathrm{HB}}$ (eV/H$_2$O) & $\\Delta G_{\\mathrm{solv}}$ (eV) \\\\\n")
+        f.write("MOF ID & Metal & Intermediate & $n_{\\mathrm{H_2O}}$ & Total Energy (eV) & $\\Delta E_{\\mathrm{solv}}$ (eV) & $\\Delta E_{\\mathrm{HB}}$ (eV/H$_2$O) & Converged \\\\\n")
         f.write("\\hline\n")
-        for _, r in df.iterrows():
-            f.write(f"{r['qmof_id']} & {r['metal']} & {r['state']} & {r['n_waters']} & {r['total_energy_eV']:.3f} & {r['solvation_energy_eV']:.3f} & {r['h_bond_stabilization_per_water_eV']:.3f} & -- \\\\\n")
+        # df here is already filtered to converged, physically-bounded rows
+        # (see the drop step above); any row present in this table met the
+        # fmax<0.03 eV/A criterion. Rows that did not converge are omitted
+        # rather than reported alongside converged ones without distinction.
+        for _, r in df.sort_values(["qmof_id", "state", "n_waters"]).iterrows():
+            f.write(f"{r['qmof_id']} & {r['metal']} & {r['state']} & {r['n_waters']} & {r['total_energy_eV']:.3f} & {r['solvation_energy_eV']:.3f} & {r['h_bond_stabilization_per_water_eV']:.3f} & Yes \\\\\n")
         f.write("\\hline\\hline\n")
         f.write("\\end{tabular}\n")
         f.write("\\end{table*}\n")

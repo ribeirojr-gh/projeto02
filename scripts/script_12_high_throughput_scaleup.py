@@ -373,9 +373,10 @@ def main():
                 "steric_congested": any_congested,
             })
 
-        zf.close()
         res_df = pd.DataFrame(results)
         res_df.to_csv(OUTPUT_CSV, index=False)
+        if ZIP_PATH.exists():
+            zf.close()
         logger.info(f"Saved high-throughput screening data ({len(res_df)} systems) to {OUTPUT_CSV}")
 
     # =========================================================================

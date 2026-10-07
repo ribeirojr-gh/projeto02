@@ -43,8 +43,15 @@ GAS_REF_CSV = DATA_DIR / "mace_gas_references.csv"
 LOG_FILE = LOG_DIR / "results.log"
 
 FMAX_MACE = 0.03       # Max residual force (eV/Å)
-MAX_STEPS = 25         # Steps for precision refinement from pre-relaxed geometries
-MODEL_SIZE = "small"   # MACE-MP-0 architecture
+MAX_STEPS = 300        # Steps for precision refinement from pre-relaxed geometries
+                        # (raised from 25: an independent audit found 25 steps
+                        # insufficient for BFGS to reach fmax<0.03 eV/A on these
+                        # cluster sizes -- 0/126 structures converged at that
+                        # budget. 300 was validated to converge representative
+                        # structures in <30 steps in practice.)
+MODEL_SIZE = "medium"  # MACE-MP-0 architecture (matches the manuscript's stated
+                        # Methods; the original script used "small", a mismatch
+                        # caught during the same audit)
 DTYPE = "float64"      # Double precision for reliable force minimization
 DEVICE = "cuda"
 
@@ -240,14 +247,35 @@ def main():
         validation_errors.append(f"Incomplete records: expected {total_intermediates}, got {len(mace_df)}")
 
     # Check 2: Physical bounds on adsorption energies (-6.0 eV <= delta_E <= +6.0 eV)
+    # This was previously a warning only; extreme values here are a correctness
+    # failure (steric-clash/exploded relaxation), not a note, so it now fails
+    # validation. Affected rows should be excluded downstream (steric-congestion
+    # filter), not silently accepted into the headline results table.
     unphysical_ads = mace_df[(mace_df["delta_E_eV"] < -6.0) | (mace_df["delta_E_eV"] > 6.0)]
     if len(unphysical_ads) > 0:
-        logger.warning(f"Note: {len(unphysical_ads)} structures have extreme binding energies.")
+        validation_passed = False
+        validation_errors.append(
+            f"{len(unphysical_ads)} structures have unphysical binding energies "
+            f"(|delta_E| > 6 eV): {unphysical_ads['file'].tolist()}"
+        )
 
     # Check 3: Check for NaN values
     if mace_df["delta_E_eV"].isna().any():
         validation_passed = False
         validation_errors.append("Detected NaN in calculated adsorption energies.")
+
+    # Check 4: Force convergence (this check was entirely absent before this
+    # audit, which is how a 0/126 convergence rate was previously reported as
+    # "[VALIDATION PASSED]"). A structure is allowed to fail to converge, but
+    # that fact must cause this script to report FAILED, not PASSED.
+    n_converged = int(mace_df["converged"].sum())
+    n_total = len(mace_df)
+    if n_converged < n_total:
+        validation_passed = False
+        validation_errors.append(
+            f"Force convergence (fmax<{FMAX_MACE} eV/A): {n_converged}/{n_total} converged. "
+            f"Non-converged files: {mace_df.loc[~mace_df['converged'], 'file'].tolist()}"
+        )
 
     if validation_passed:
         logger.info("\n[VALIDATION PASSED] script_04_mace_refinement.py")

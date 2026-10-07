@@ -52,9 +52,11 @@ CSV_OUTPUT = DATA_DIR / "microsolvation_thermodynamics.csv"
 TEX_OUTPUT = SI_DIR / "table2_microsolvation_energetics.tex"
 LOG_FILE = LOG_DIR / "results.log"
 
-FMAX_MACE = 0.04
-MAX_STEPS = 35
-MODEL_SIZE = "small"
+FMAX_MACE = 0.03       # aligned with script_04/manuscript criterion (was 0.04)
+MAX_STEPS = 300         # raised from 35: audit found this insufficient for
+                         # solvated-cluster relaxations (e.g. qmof-73ded45
+                         # OER *OH n=3 reached fmax=67448 eV/A at 35 steps)
+MODEL_SIZE = "medium"   # matches manuscript's stated Methods (was "small")
 DTYPE = "float64"
 DEVICE = "cuda"
 
@@ -249,7 +251,8 @@ def main():
                 "total_energy_eV": e_dry,
                 "solvation_energy_eV": 0.0,
                 "h_bond_stabilization_per_water_eV": 0.0,
-                "fmax_eV_A": 0.02
+                "fmax_eV_A": 0.02,
+                "converged": True,
             })
 
             for n_w in [1, 2, 3]:
@@ -261,19 +264,25 @@ def main():
                 
                 # Local optimization of the solvent & adsorbate network
                 dyn = BFGS(solv_atoms, logfile=None)
-                dyn.run(fmax=FMAX_MACE, steps=MAX_STEPS)
-                
+                converged = dyn.run(fmax=FMAX_MACE, steps=MAX_STEPS)
+
                 e_solv = float(solv_atoms.get_potential_energy())
                 fmax_val = float(np.max(np.linalg.norm(solv_atoms.get_forces(), axis=1)))
-                
+
                 # Differential solvation energy: E(MOF+ads+nH2O) - E(MOF+ads) - n*E(H2O)
                 delta_e_solv = e_solv - e_dry - n_w * e_h2o_ref
                 e_hb_per_w = delta_e_solv / n_w
-                
+
+                if not converged or abs(delta_e_solv) > 6.0:
+                    logger.error(
+                        f"  -> {tag}: UNRELIABLE (converged={converged}, fmax={fmax_val:.3f} eV/A, "
+                        f"delta_E_solv={delta_e_solv:.3f} eV). Flagged, not silently accepted."
+                    )
+
                 # Save structure
                 out_cif = OUT_DIR / f"{tag}.cif"
                 ase.io.write(str(out_cif), solv_atoms, format="cif")
-                
+
                 records.append({
                     "qmof_id": q_id,
                     "metal": metal,
@@ -283,13 +292,29 @@ def main():
                     "total_energy_eV": e_solv,
                     "solvation_energy_eV": delta_e_solv,
                     "h_bond_stabilization_per_water_eV": e_hb_per_w,
-                    "fmax_eV_A": fmax_val
+                    "fmax_eV_A": fmax_val,
+                    "converged": converged,
                 })
-                logger.info(f"  -> {tag}: ΔE_solv = {delta_e_solv:.3f} eV ({e_hb_per_w:.3f} eV/H2O) | fmax = {fmax_val:.3f} eV/Å")
+                logger.info(f"  -> {tag}: ΔE_solv = {delta_e_solv:.3f} eV ({e_hb_per_w:.3f} eV/H2O) | fmax = {fmax_val:.3f} eV/Å | converged={converged}")
 
         df = pd.DataFrame(records)
         df.to_csv(CSV_OUTPUT, index=False)
         logger.info(f"Saved solvation thermodynamics to {CSV_OUTPUT}")
+
+    # Filter out unconverged or unphysical rows before any plotting/analysis
+    # uses them. This mirrors the steric-congestion filter already applied in
+    # script_07; its absence here previously let fmax=67448 eV/A, eta=4961.84 V
+    # values reach the published Figure 8 legend directly.
+    if "converged" in df.columns:
+        n_before = len(df)
+        bad = df[(df["converged"] == False) | (df["solvation_energy_eV"].abs() > 6.0)]
+        if len(bad) > 0:
+            logger.warning(
+                f"Dropping {len(bad)}/{n_before} rows as unconverged or unphysical "
+                f"(|solvation_energy_eV|>6 eV) before plotting: "
+                f"{list(zip(bad['qmof_id'], bad['state'], bad['n_waters']))}"
+            )
+        df = df[~df.index.isin(bad.index)].reset_index(drop=True)
 
     # =========================================================================
     # THERMODYNAMIC SCALING RELATION & SELECTIVITY COMPUTATIONS

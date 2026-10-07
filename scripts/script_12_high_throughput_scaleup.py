@@ -62,9 +62,9 @@ LOG_FILE = LOG_DIR / "results.log"
 
 TARGET_METALS = ["Co", "Cu", "Fe", "Mn", "Mo", "Ni", "Ru", "Zn", "Zr"]
 MAX_CANDIDATES_PER_METAL = 4
-FMAX_SCALEUP = 0.05
-MAX_STEPS = 25
-MODEL_SIZE = "small"
+FMAX_SCALEUP = 0.03      # aligned with script_04/manuscript criterion (was 0.05)
+MAX_STEPS = 300           # raised from 25 (see script_04 for the same audit finding)
+MODEL_SIZE = "medium"     # matches manuscript's stated Methods (was "small")
 DTYPE = "float64"
 DEVICE = "cuda"
 
@@ -284,6 +284,7 @@ def main():
             ]
 
             energies = {}
+            any_congested = False
             for ads_type, b_dist in inter_configs:
                 struct = build_adsorbate(atoms, m_idx, ads_type, b_dist, u_open)
                 struct.calc = calc
@@ -291,11 +292,18 @@ def main():
                 dyn.run(fmax=FMAX_SCALEUP, steps=MAX_STEPS)
                 e_tot = float(struct.get_potential_energy())
                 fmax_val = float(np.max(np.linalg.norm(struct.get_forces(), axis=1)))
-                
-                # Check for steric clash
-                if fmax_val > 5.0:
-                    logger.warning(f"Steric clash in {q_id} {ads_type} (fmax={fmax_val:.1f} eV/Å). Setting boundary penalty.")
-                    e_tot = e_clean + 10.0
+
+                # Check for steric clash / non-convergence. A prior version of
+                # this script substituted a fixed "+10 eV boundary penalty"
+                # here, which silently propagated into eta_OER/eta_CO2RR as
+                # double-digit-volt values reaching the published figure. We
+                # now flag the structure as congested (NaN its energy) instead
+                # of injecting a fabricated number; congested rows are dropped
+                # before plotting, matching script_07's convention.
+                if fmax_val > 5.0 or abs(e_tot - e_clean) > 6.0:
+                    logger.warning(f"Steric clash/congestion in {q_id} {ads_type} (fmax={fmax_val:.1f} eV/Å). Flagging, not penalizing.")
+                    e_tot = np.nan
+                    any_congested = True
 
                 energies[ads_type] = e_tot
 
@@ -352,7 +360,8 @@ def main():
                 "dG_CO_eV": dG_CO,
                 "eta_CO2RR_V": eta_CO2RR,
                 "delta_G_sel_eV": delta_G_sel,
-                "prefers_CO2RR": (delta_G_sel < 0.0)
+                "prefers_CO2RR": (delta_G_sel < 0.0),
+                "steric_congested": any_congested,
             })
 
         zf.close()
@@ -363,6 +372,18 @@ def main():
     # =========================================================================
     # PLOTTING FIGURE 9: 4-PANEL PUBLICATION SCALE-UP SUMMARY
     # =========================================================================
+    if "steric_congested" in res_df.columns:
+        n_before = len(res_df)
+        res_df = res_df[res_df["steric_congested"] == False].copy()
+        n_dropped = n_before - len(res_df)
+        if n_dropped > 0:
+            logger.warning(
+                f"Excluding {n_dropped}/{n_before} sterically congested rows before plotting "
+                f"Figure 9 (same convention as script_07 for Figures 1-3). This filter was "
+                f"absent in the prior version of this script, which let eta_OER_V values of "
+                f"10-24 V reach the published panel (d)."
+            )
+
     fig, axes = plt.subplots(2, 2, figsize=(11.5, 9.0))
     ax_her = axes[0, 0]
     ax_oer = axes[0, 1]

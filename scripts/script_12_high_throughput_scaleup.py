@@ -302,15 +302,30 @@ def main():
                 e_tot = float(struct.get_potential_energy())
                 fmax_val = float(np.max(np.linalg.norm(struct.get_forces(), axis=1)))
 
-                # Check for steric clash / non-convergence. A prior version of
-                # this script substituted a fixed "+10 eV boundary penalty"
-                # here, which silently propagated into eta_OER/eta_CO2RR as
-                # double-digit-volt values reaching the published figure. We
-                # now flag the structure as congested (NaN its energy) instead
-                # of injecting a fabricated number; congested rows are dropped
-                # before plotting, matching script_07's convention.
-                if fmax_val > 5.0 or abs(e_tot - e_clean) > 6.0:
-                    logger.warning(f"Steric clash/congestion in {q_id} {ads_type} (fmax={fmax_val:.1f} eV/Å). Flagging, not penalizing.")
+                # Check for genuine optimizer non-convergence (steric clash
+                # prevents the adsorbate from reaching a stable local minimum
+                # within MAX_STEPS). A prior version of this script substituted
+                # a fixed "+10 eV boundary penalty" here, which silently
+                # propagated into eta_OER/eta_CO2RR as double-digit-volt values
+                # reaching the published figure. We now flag the structure as
+                # congested (NaN its energy) instead of injecting a fabricated
+                # number; congested rows are dropped before plotting, matching
+                # script_07's convention.
+                #
+                # Note: e_tot - e_clean is NOT a gas-referenced reaction energy
+                # (e_tot includes the raw total energy of the extra adsorbate
+                # atoms, which is routinely 10-20 eV below e_clean simply from
+                # new bond formation relative to the free-atom reference used
+                # by MACE-MP-0 -- see GAS_REFS below, e.g. H2O = -14.05 eV).
+                # Comparing that unreferenced difference to a 6 eV threshold
+                # flagged almost every intermediate on every MOF as "congested"
+                # in an earlier version of this fix, which is a false-positive
+                # storm, not real chemistry. The energy-based sanity check is
+                # therefore deferred until after the gas-referenced dE_* values
+                # are computed below (see the |dE| > 50 eV check, matching the
+                # convention already used in script_05_phva_thermo.py).
+                if fmax_val > 5.0:
+                    logger.warning(f"Steric clash (non-convergence) in {q_id} {ads_type} (fmax={fmax_val:.1f} eV/Å). Flagging, not penalizing.")
                     e_tot = np.nan
                     any_congested = True
 
@@ -350,6 +365,17 @@ def main():
             eta_CO2RR = max(0.0, max(dg_co2_1, dg_co2_2) - (-0.11))
 
             delta_G_sel = dG_COOH - dG_H
+
+            # Deferred energy-based sanity check (see note above): now that the
+            # reaction energies are properly referenced against gas-phase
+            # species, an unphysically large |dE| is a genuine sign that the
+            # adsorbate geometry is pathological (e.g. embedded in a pore wall)
+            # rather than ordinary bond-formation energy. Threshold matches
+            # script_05_phva_thermo.py's convention (|delta_E| > 50 eV).
+            raw_dE_values = [dE_H, dE_OH, dE_O, dE_OOH, dE_COOH, dE_CO]
+            if any(np.isfinite(d) and abs(d) > 50.0 for d in raw_dE_values):
+                logger.warning(f"Unphysical reaction energy in {q_id} (max|dE|={max(abs(d) for d in raw_dE_values if np.isfinite(d)):.1f} eV). Flagging as congested.")
+                any_congested = True
 
             results.append({
                 "qmof_id": q_id,

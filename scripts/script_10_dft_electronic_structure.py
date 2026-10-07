@@ -126,28 +126,26 @@ def run_dft_pdos(cluster, metal_idx: int, log_name: str):
         txt=txt_path
     )
     cluster.calc = calc
+    fallback_used = False
+    scf_converged = True
     try:
         cluster.get_potential_energy()
     except KohnShamConvergenceError:
         logger.warning(f"SCF reached maxiter for {log_name}, extracting quasi-converged electronic structure.")
+        scf_converged = False
     except Exception as e:
-        logger.warning(f"SCF warning for {log_name}: {e}")
+        logger.error(f"SCF FAILED for {log_name}: {e}. No electronic structure result will be fabricated; this structure must be re-run or excluded.")
+        raise
 
-    try:
-        e_fermi = float(calc.get_fermi_level())
-    except Exception:
-        e_fermi = -6.0
+    # Fermi level, PDOS and d-band center are read directly from the completed
+    # calculation. No sentinel/placeholder values are substituted on failure:
+    # a failure here must be visible downstream, not silently masked.
+    e_fermi = float(calc.get_fermi_level())
 
-    try:
-        energies, pdos_up = calc.get_orbital_ldos(a=metal_idx, spin=0, angular="d")
-        energies, pdos_dn = calc.get_orbital_ldos(a=metal_idx, spin=1, angular="d")
-        energies = np.array(energies)
-        pdos_tot = np.array(pdos_up) + np.array(pdos_dn)
-    except Exception:
-        energies = np.linspace(-15, 5, 200)
-        pdos_up = np.zeros(200)
-        pdos_dn = np.zeros(200)
-        pdos_tot = np.zeros(200)
+    energies, pdos_up = calc.get_orbital_ldos(a=metal_idx, spin=0, angular="d")
+    energies, pdos_dn = calc.get_orbital_ldos(a=metal_idx, spin=1, angular="d")
+    energies = np.array(energies)
+    pdos_tot = np.array(pdos_up) + np.array(pdos_dn)
 
     # Compute d-band center relative to Fermi Level
     occ_mask = energies <= e_fermi
@@ -156,12 +154,14 @@ def run_dft_pdos(cluster, metal_idx: int, log_name: str):
         p_occ = pdos_tot[occ_mask]
         e_d = float(np.sum(e_rel * p_occ) / np.sum(p_occ))
     else:
-        e_d = -2.0
+        # Genuinely no occupied d-density found below E_F: this is a real,
+        # reportable result (or a sign the cluster/metal_idx is wrong), not
+        # something to paper over with a fabricated constant.
+        logger.error(f"No occupied d-PDOS found below E_F for {log_name}; flagging as unreliable rather than substituting a placeholder d-band center.")
+        fallback_used = True
+        e_d = float("nan")
 
-    try:
-        mag_mom = float(cluster.get_magnetic_moment())
-    except Exception:
-        mag_mom = 0.0
+    mag_mom = float(cluster.get_magnetic_moment())
 
     return {
         "e_fermi": e_fermi,
@@ -170,7 +170,9 @@ def run_dft_pdos(cluster, metal_idx: int, log_name: str):
         "energies": energies,
         "pdos_up": pdos_up,
         "pdos_dn": pdos_dn,
-        "pdos_tot": pdos_tot
+        "pdos_tot": pdos_tot,
+        "scf_converged": scf_converged,
+        "fallback_used": fallback_used,
     }
 
 
@@ -231,7 +233,13 @@ def main():
             if log_txt.exists():
                 e_evals, occs = parse_gpaw_eigenvalues(log_txt)
                 match = sum_df[(sum_df["qmof_id"] == q_id) & (sum_df["state"] == state)]
-                e_f = float(match["e_fermi_eV"].values[0]) if len(match) > 0 else -6.0
+                if len(match) == 0:
+                    raise ValueError(
+                        f"No summary row found for {q_id}/{state} in {PDOS_SUMMARY_CSV}; "
+                        "refusing to substitute a placeholder Fermi level. Re-run the DFT "
+                        "step for this structure or remove it from the plotting target list."
+                    )
+                e_f = float(match["e_fermi_eV"].values[0])
                 
                 # Smear eigenvalues with Gaussian
                 e_grid = np.linspace(-10.0, 4.0, 400)
@@ -261,7 +269,9 @@ def main():
                 "natoms_cluster": len(cluster),
                 "e_fermi_eV": res["e_fermi"],
                 "d_band_center_rel_EF_eV": res["e_d_center"],
-                "magnetic_moment_muB": res["magnetic_moment"]
+                "magnetic_moment_muB": res["magnetic_moment"],
+                "scf_converged": res["scf_converged"],
+                "fallback_used": res["fallback_used"],
             })
 
             raw_pdos_dict[f"{tag}_energies"] = res["energies"] - res["e_fermi"]
